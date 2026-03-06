@@ -23,6 +23,10 @@ var pinchState = null; // { startDist, startScale, startTx, startTy, focalX, foc
 // One-finger pan state (when zoomed)
 var panState = null; // { lastX, lastY, moved }
 
+// Mouse pan state (desktop left-click pan when zoomed)
+var mousePanState = null; // { lastX, lastY, moved }
+var suppressClick = false;
+
 // Double-tap detection
 var lastTapTime = 0;
 
@@ -234,6 +238,75 @@ export function initUI(appEl, actionCallback) {
     }
   });
 
+  // -- Scroll-Wheel Zoom --
+
+  boardViewport.addEventListener('wheel', function (e) {
+    e.preventDefault();
+    var newScale = zoomState.scale * (1 - e.deltaY * 0.002);
+    newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, newScale));
+
+    var vpRect = boardViewport.getBoundingClientRect();
+    var focalX = e.clientX - vpRect.left;
+    var focalY = e.clientY - vpRect.top;
+
+    var boardX = (focalX - zoomState.tx) / zoomState.scale;
+    var boardY = (focalY - zoomState.ty) / zoomState.scale;
+
+    zoomState.tx = focalX - boardX * newScale;
+    zoomState.ty = focalY - boardY * newScale;
+    zoomState.scale = newScale;
+
+    if (zoomState.scale < 1.08) {
+      zoomState.scale = 1;
+    }
+
+    clampZoom();
+    applyTransform();
+  }, { passive: false });
+
+  // -- Left-Click Pan When Zoomed --
+
+  boardViewport.addEventListener('mousedown', function (e) {
+    if (e.button !== 0) return;
+    if (zoomState.scale <= 1) return;
+    if (e.target.closest('[data-drag]')) return;
+    mousePanState = { lastX: e.clientX, lastY: e.clientY, moved: false };
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', function (e) {
+    if (!mousePanState) return;
+    var dx = e.clientX - mousePanState.lastX;
+    var dy = e.clientY - mousePanState.lastY;
+    if (!mousePanState.moved && Math.abs(dx) + Math.abs(dy) > 5) {
+      mousePanState.moved = true;
+    }
+    if (mousePanState.moved) {
+      zoomState.tx += dx;
+      zoomState.ty += dy;
+      mousePanState.lastX = e.clientX;
+      mousePanState.lastY = e.clientY;
+      clampZoom();
+      applyTransform();
+    }
+  });
+
+  document.addEventListener('mouseup', function (e) {
+    if (!mousePanState) return;
+    if (mousePanState.moved) {
+      suppressClick = true;
+    }
+    mousePanState = null;
+  });
+
+  boardViewport.addEventListener('click', function (e) {
+    if (suppressClick) {
+      e.stopPropagation();
+      e.preventDefault();
+      suppressClick = false;
+    }
+  }, true);
+
   // -- HTML5 Drag-and-Drop --
 
   var dragSource = null; // {type: 'rack'|'pending', index: number}
@@ -244,8 +317,22 @@ export function initUI(appEl, actionCallback) {
     var type = el.getAttribute('data-drag');
     var index = parseInt(el.getAttribute('data-index'));
     dragSource = { type: type, index: index };
+    mousePanState = null;
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', ''); // required for Firefox
+
+    // Create drag ghost that matches board cell size
+    var cellSize = boardSize / 15 * zoomState.scale;
+    var ghostEl = el.cloneNode(true);
+    ghostEl.className = 'drag-ghost';
+    ghostEl.style.width = cellSize + 'px';
+    ghostEl.style.height = cellSize + 'px';
+    ghostEl.style.fontSize = (Math.min(window.innerWidth * 0.028, 14) * zoomState.scale) + 'px';
+    ghostEl.style.position = 'absolute';
+    ghostEl.style.top = '-9999px';
+    document.body.appendChild(ghostEl);
+    e.dataTransfer.setDragImage(ghostEl, cellSize / 2, cellSize / 2);
+
     el.classList.add('dragging');
   });
 
@@ -255,6 +342,9 @@ export function initUI(appEl, actionCallback) {
     for (var i = 0; i < dragging.length; i++) dragging[i].classList.remove('dragging');
     var overs = app.querySelectorAll('.drag-over');
     for (var i = 0; i < overs.length; i++) overs[i].classList.remove('drag-over');
+    // Clean up offscreen drag ghost elements
+    var ghosts = document.querySelectorAll('body > .drag-ghost');
+    for (var i = 0; i < ghosts.length; i++) ghosts[i].parentNode.removeChild(ghosts[i]);
   });
 
   app.addEventListener('dragover', function (e) {
@@ -328,9 +418,13 @@ export function initUI(appEl, actionCallback) {
     var index = parseInt(el.getAttribute('data-index'));
     var touch = e.touches[0];
 
-    // Create ghost element
+    // Create ghost element sized to match board cells
+    var cellSize = boardSize / 15 * zoomState.scale;
     var ghost = el.cloneNode(true);
     ghost.className = 'drag-ghost';
+    ghost.style.width = cellSize + 'px';
+    ghost.style.height = cellSize + 'px';
+    ghost.style.fontSize = (Math.min(window.innerWidth * 0.028, 14) * zoomState.scale) + 'px';
     ghost.style.left = touch.clientX + 'px';
     ghost.style.top = touch.clientY + 'px';
     document.body.appendChild(ghost);
@@ -562,7 +656,7 @@ function renderGame(state, myAddr, uiState) {
   }
 
   // Apply zoom transform synchronously - no flash
-  applyTransform();
+  reclampZoom();
 }
 
 function renderLastMove(state) {

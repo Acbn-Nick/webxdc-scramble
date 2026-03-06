@@ -56,7 +56,7 @@ html, body {
   flex-direction: column;
   height: 100vh;
   height: 100dvh;
-  max-width: 600px;
+  max-width: 1200px;
   margin: 0 auto;
   padding: 2px;
 }
@@ -166,8 +166,8 @@ html, body {
 .score-bar {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 6px;
+  gap: clamp(4px, 1vw, 10px);
+  padding: clamp(3px, 0.8vw, 8px) clamp(4px, 1vw, 10px);
   background: var(--board-bg);
   background-image: var(--texture-scorebar);
   background-size: 100% 100%;
@@ -180,7 +180,7 @@ html, body {
   display: flex;
   gap: 5px;
   align-items: center;
-  padding: 2px 6px;
+  padding: clamp(2px, 0.4vw, 4px) clamp(4px, 1vw, 10px);
   background: rgba(0,0,0,0.2);
   border: 1px solid rgba(0,0,0,0.3);
   border-radius: 4px;
@@ -194,19 +194,19 @@ html, body {
 
 .score-name {
   font-weight: bold;
-  font-size: 0.7em;
+  font-size: clamp(9px, 1.8vw, 18px);
   letter-spacing: 0.02em;
 }
 
 .score-pts {
-  font-size: 0.95em;
+  font-size: clamp(12px, 2.4vw, 24px);
   color: #ffe8a0;
   font-weight: bold;
 }
 
 .tiles-remaining {
   margin-left: auto;
-  font-size: 0.65em;
+  font-size: clamp(8px, 1.6vw, 16px);
   color: rgba(255,255,255,0.7);
   letter-spacing: 0.02em;
 }
@@ -216,7 +216,7 @@ html, body {
 .last-move {
   text-align: center;
   padding: 2px 6px;
-  font-size: 0.7em;
+  font-size: clamp(9px, 1.8vw, 18px);
   color: var(--text-dim);
   min-height: 1.2em;
 }
@@ -363,8 +363,8 @@ html, body {
 }
 
 .rack-tile {
-  width: 52px;
-  height: 60px;
+  width: clamp(42px, 8vw, 72px);
+  height: clamp(50px, 9.2vw, 84px);
   background: var(--tile-bg);
   border-top: 2px solid #fff;
   border-left: 2px solid #fff;
@@ -412,8 +412,8 @@ html, body {
 }
 
 .rack-slot.empty {
-  width: 52px;
-  height: 60px;
+  width: clamp(42px, 8vw, 72px);
+  height: clamp(50px, 9.2vw, 84px);
   border: 2px dashed rgba(0,0,0,0.15);
   border-radius: 4px;
 }
@@ -438,7 +438,7 @@ html, body {
   padding: 5px 10px;
   border: none;
   border-radius: 6px;
-  font-size: 0.75em;
+  font-size: clamp(10px, 2vw, 18px);
   font-weight: bold;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   cursor: pointer;
@@ -479,14 +479,14 @@ html, body {
   color: var(--text-dim);
   font-style: italic;
   padding: 4px;
-  font-size: 0.8em;
+  font-size: clamp(10px, 2vw, 18px);
 }
 
 .error-message {
   width: 100%;
   text-align: center;
   color: var(--error);
-  font-size: 0.75em;
+  font-size: clamp(10px, 1.8vw, 16px);
   padding: 2px;
 }
 
@@ -569,8 +569,7 @@ html, body {
 
 .drag-ghost {
   position: fixed;
-  width: 44px;
-  height: 52px;
+  aspect-ratio: 1;
   background: var(--tile-bg);
   border: 2px solid var(--accent-gold);
   border-radius: 4px;
@@ -587,13 +586,16 @@ html, body {
 .drag-ghost .tile-letter {
   font-weight: bold;
   color: var(--tile-text);
-  font-size: 1.3em;
+  font-size: 1.1em;
   line-height: 1;
 }
 
 .drag-ghost .tile-value {
-  font-size: 0.65em;
+  font-size: 0.55em;
   color: var(--tile-value);
+  position: absolute;
+  bottom: 1px;
+  right: 2px;
 }
 
 /* -- Score Preview -- */
@@ -601,7 +603,7 @@ html, body {
 .preview-bar {
   text-align: center;
   padding: 2px 6px;
-  font-size: 0.75em;
+  font-size: clamp(10px, 2vw, 20px);
   min-height: 1.2em;
 }
 
@@ -625,34 +627,11 @@ html, body {
 /* -- Responsive -- */
 
 @media (max-width: 380px) {
-  .rack-tile {
-    width: 46px;
-    height: 54px;
-  }
-
-  .rack-slot.empty {
-    width: 46px;
-    height: 54px;
-  }
-
   .btn {
     padding: 4px 7px;
-    font-size: 0.7em;
   }
 
   .cell {
     font-size: 2.2vw;
-  }
-}
-
-@media (max-width: 320px) {
-  .rack-tile {
-    width: 42px;
-    height: 50px;
-  }
-
-  .rack-slot.empty {
-    width: 42px;
-    height: 50px;
   }
 }
