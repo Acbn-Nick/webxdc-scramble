@@ -7,8 +7,8 @@ yarn-debug.log*
 .env.test.local
 .env.production.local
 .next/
-dist/
 coverage/
 .cache/
 .vscode/
 *.tsbuildinfo
+.claude/
