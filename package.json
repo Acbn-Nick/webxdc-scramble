@@ -1,0 +1,18 @@
+{
+  "name": "webxdc-scramble",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "2 Player letter tile game, now in Webxdc!",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "devDependencies": {
+    "vite": "^5.4.0",
+    "vite-plugin-zip-pack": "^1.2.4"
+  },
+  "dependencies": {
+    "vite-plugin-singlefile": "^2.3.0"
+  }
+}
