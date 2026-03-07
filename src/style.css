@@ -259,7 +259,7 @@ html, body {
 }
 
 .cell {
-  background: url('/board.png') center/cover;
+  background: url('/board.jpg') center/cover;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -276,23 +276,23 @@ html, body {
 }
 
 .cell-tw {
-  background: url('/tw.png') center/cover;
+  background: url('/tw.jpg') center/cover;
 }
 
 .cell-dw {
-  background: url('/dw.png') center/cover;
+  background: url('/dw.jpg') center/cover;
 }
 
 .cell-tl {
-  background: url('/tl.png') center/cover;
+  background: url('/tl.jpg') center/cover;
 }
 
 .cell-dl {
-  background: url('/dl.png') center/cover;
+  background: url('/dl.jpg') center/cover;
 }
 
 .cell-star {
-  background: url('/center.png') center/cover;
+  background: url('/center.jpg') center/cover;
 }
 
 /* Tile on board */
@@ -622,6 +622,127 @@ html, body {
 .preview-bar .preview-total {
   font-weight: bold;
   font-size: 1.05em;
+}
+
+/* -- Seeding Screen -- */
+
+.seeding-status {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 200px;
+}
+
+.seeding-heading {
+  text-align: center;
+  color: var(--text-dim);
+  font-style: italic;
+  font-size: 0.9em;
+  margin-bottom: 4px;
+}
+
+.seeding-player {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 16px;
+  border-radius: 6px;
+  background: var(--btn-bg);
+  color: #fff;
+  border: 1px solid var(--bevel-dark);
+}
+
+.seeding-player.seeding-ready {
+  border-color: var(--accent-gold);
+}
+
+.seeding-name {
+  font-weight: bold;
+  font-size: 0.95em;
+}
+
+.seeding-label {
+  font-size: 0.8em;
+  opacity: 0.8;
+}
+
+/* -- Finished Actions -- */
+
+.finished-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 10px;
+}
+
+/* -- Game History -- */
+
+.history-overlay {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  max-height: 100vh;
+  max-height: 100dvh;
+  overflow-y: auto;
+}
+
+.history-overlay h2 {
+  color: var(--accent-gold);
+  letter-spacing: 0.02em;
+}
+
+.history-entry {
+  background: #fff;
+  border: 1px solid var(--bevel-dark);
+  border-radius: 8px;
+  padding: 10px;
+  width: 100%;
+  max-width: 400px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.history-header {
+  font-weight: bold;
+  font-size: 0.95em;
+  color: var(--accent-gold);
+}
+
+.history-scores {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.history-score {
+  font-size: 0.85em;
+}
+
+.history-score.winner {
+  font-weight: bold;
+  color: var(--accent-gold);
+}
+
+.history-reason {
+  font-size: 0.75em;
+  color: var(--text-dim);
+}
+
+.history-board-thumb {
+  width: 160px;
+  height: 160px;
+  align-self: center;
+  overflow: hidden;
+}
+
+.history-board-thumb .board {
+  width: 160px;
+  height: 160px;
+  font-size: 3px;
+  pointer-events: none;
 }
 
 /* -- Responsive -- */

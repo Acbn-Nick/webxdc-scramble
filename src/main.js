@@ -2,10 +2,11 @@
 
 import './style.css';
 import { initialState, reduce, getSummary } from './state.js';
-import { createBag, shuffleBag, validateAndScore } from './board.js';
-import { isValidWord } from './dict.js';
+import { validateAndScore } from './board.js';
+import { loadDictionary, isValidWord } from './dict.js';
 import { initUI, render, reclampZoom } from './ui.js';
 import { generateTextures } from './textures.js';
+import { generateNonce, sha256sync, hexToBytes, bytesToHex } from './crypto.js';
 
 var myAddr = window.webxdc.selfAddr;
 var myName = window.webxdc.selfName;
@@ -22,7 +23,11 @@ var uiState = {
   errorMessage: null,
   rackOrder: null,          // null = natural order, or [indices] mapping for visual reorder
   preview: null,            // { valid, words, totalScore, reason } or null
+  showHistory: false,
 };
+
+var pendingCommitGame = -1;
+var pendingRevealGame = -1;
 
 function clearError() {
   uiState.errorMessage = null;
@@ -53,30 +58,105 @@ function rerender() {
   render(state, myAddr, uiState);
 }
 
-// Boot 
+// --- Nonce lifecycle helpers ---
+
+function nonceKey() {
+  return 'scramble_nonce_' + state.gameNumber + '_' + myAddr;
+}
+
+function storeNonce(nonce) {
+  try { localStorage.setItem(nonceKey(), nonce); } catch (e) {}
+}
+
+function loadNonce() {
+  try { return localStorage.getItem(nonceKey()); } catch (e) { return null; }
+}
+
+function clearNonce() {
+  try { localStorage.removeItem(nonceKey()); } catch (e) {}
+}
+
+function autoCommit() {
+  var nonce = generateNonce();
+  storeNonce(nonce);
+  var hash = sha256sync(hexToBytes(nonce));
+  var payload = { type: 'commit', addr: myAddr, hash: hash };
+  window.webxdc.sendUpdate({
+    payload: payload,
+    summary: getSummary(reduce(state, { payload: payload }), myAddr),
+  }, '');
+}
+
+function autoReveal() {
+  var nonce = loadNonce();
+  if (!nonce) {
+    // Nonce lost (app restart) — re-commit
+    pendingCommitGame = -1;
+    pendingRevealGame = -1;
+    autoCommit();
+    return;
+  }
+  var payload = { type: 'reveal', addr: myAddr, nonce: nonce };
+  var nextState = reduce(state, { payload: payload });
+  window.webxdc.sendUpdate({
+    payload: payload,
+    summary: getSummary(nextState, myAddr),
+  }, '');
+  // Don't clearNonce() here — reveal may be rejected; nonce is keyed by gameNumber so won't collide
+}
+
+function handleSeeding() {
+  if (state.phase !== 'seeding') return;
+  if (!state.players[myAddr]) return;
+
+  if (!state.commits[myAddr]) {
+    if (pendingCommitGame !== state.gameNumber) {
+      pendingCommitGame = state.gameNumber;
+      autoCommit();
+    }
+  } else {
+    var bothCommitted = true;
+    for (var i = 0; i < state.playerOrder.length; i++) {
+      if (!state.commits[state.playerOrder[i]]) { bothCommitted = false; break; }
+    }
+    if (bothCommitted && !state.reveals[myAddr]) {
+      if (pendingRevealGame !== state.gameNumber) {
+        pendingRevealGame = state.gameNumber;
+        autoReveal();
+      }
+    }
+  }
+}
+
+// Boot
 
 document.addEventListener('DOMContentLoaded', function () {
-  generateTextures();
-  var appEl = document.getElementById('app');
-  initUI(appEl, handleAction);
-  rerender();
-
-  // Re-clamp zoom bounds on orientation/resize changes
-  window.addEventListener('resize', reclampZoom);
-
-  window.webxdc.setUpdateListener(function (update) {
-    state = reduce(state, update);
-    // Reset UI state on turn change or phase change
-    uiState.pendingPlacements = [];
-    uiState.selectedRackIndex = null;
-    uiState.exchangeMode = false;
-    uiState.exchangeIndices = [];
-    uiState.blankPromptData = null;
-    uiState.rackOrder = null;
-    uiState.preview = null;
-    clearError();
+  loadDictionary().then(function () {
+    generateTextures();
+    var appEl = document.getElementById('app');
+    initUI(appEl, handleAction);
     rerender();
-  }, 0);
+
+    // Re-clamp zoom bounds on orientation/resize changes
+    window.addEventListener('resize', reclampZoom);
+
+    window.webxdc.setUpdateListener(function (update) {
+      state = reduce(state, update);
+      // Reset UI state on turn change or phase change
+      uiState.pendingPlacements = [];
+      uiState.selectedRackIndex = null;
+      uiState.exchangeMode = false;
+      uiState.exchangeIndices = [];
+      uiState.blankPromptData = null;
+      uiState.rackOrder = null;
+      uiState.preview = null;
+      uiState.showHistory = false;
+      clearError();
+      rerender();
+      // Auto-seeding after render
+      handleSeeding();
+    }, 0);
+  });
 });
 
 // Action Handlers
@@ -93,17 +173,39 @@ function handleAction(action, data) {
   }
 
   if (action === 'start') {
-    var bag = shuffleBag(createBag());
     var players = {};
     for (var i = 0; i < state.playerOrder.length; i++) {
       var addr = state.playerOrder[i];
       players[addr] = { name: state.players[addr].name };
     }
-    var nextState = reduce(state, { payload: { type: 'start', addr: myAddr, bag: JSON.parse(JSON.stringify(bag)), playerOrder: state.playerOrder, players: players } });
+    var payload = { type: 'start', addr: myAddr, playerOrder: state.playerOrder, players: players };
+    var nextState = reduce(state, { payload: payload });
     window.webxdc.sendUpdate({
-      payload: { type: 'start', addr: myAddr, bag: bag, playerOrder: state.playerOrder, players: players },
+      payload: payload,
       summary: getSummary(nextState, myAddr),
     }, 'Game started');
+    return;
+  }
+
+  if (action === 'newgame') {
+    var payload = { type: 'newgame', addr: myAddr };
+    var nextState = reduce(state, { payload: payload });
+    window.webxdc.sendUpdate({
+      payload: payload,
+      summary: getSummary(nextState, myAddr),
+    }, 'New game started');
+    return;
+  }
+
+  if (action === 'showhistory') {
+    uiState.showHistory = true;
+    rerender();
+    return;
+  }
+
+  if (action === 'hidehistory') {
+    uiState.showHistory = false;
+    rerender();
     return;
   }
 
@@ -392,37 +494,17 @@ function handleAction(action, data) {
     if (state.turn !== myAddr) return;
     if (uiState.exchangeIndices.length === 0) return;
 
-    var rack = state.racks[myAddr];
-    var bag = JSON.parse(JSON.stringify(state.bag));
-
-    if (uiState.exchangeIndices.length > bag.length) {
+    if (uiState.exchangeIndices.length > state.bag.length) {
       uiState.errorMessage = 'Not enough tiles in the bag';
       rerender();
       return;
     }
-
-    // Draw new tiles first
-    var drawnTiles = bag.splice(0, uiState.exchangeIndices.length);
-
-    // Put returned tiles back into bag
-    var returned = [];
-    for (var i = 0; i < uiState.exchangeIndices.length; i++) {
-      returned.push(JSON.parse(JSON.stringify(rack[uiState.exchangeIndices[i]])));
-    }
-    for (var i = 0; i < returned.length; i++) {
-      bag.push(returned[i]);
-    }
-
-    // Shuffle the bag
-    shuffleBag(bag);
 
     var payload = {
       type: 'exchange',
       addr: myAddr,
       moveNumber: state.moveNumber,
       rackIndices: uiState.exchangeIndices.slice(),
-      drawnTiles: drawnTiles,
-      newBag: bag,
     };
 
     var nextState = reduce(state, { payload: payload });

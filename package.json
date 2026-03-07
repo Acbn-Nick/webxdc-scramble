@@ -6,7 +6,8 @@
   "description": "2 Player letter tile game, now in Webxdc!",
   "scripts": {
     "dev": "vite",
-    "build": "vite build"
+    "build:dawg": "node scripts/build-dawg.js",
+    "build": "node scripts/build-dawg.js && vite build"
   },
   "devDependencies": {
     "vite": "^5.4.0",

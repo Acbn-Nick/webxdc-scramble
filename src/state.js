@@ -2,21 +2,29 @@
 
 import { BOARD_SIZE, RACK_SIZE, CENTER, createBag, validateAndScore } from './board.js';
 import { isValidWord } from './dict.js';
+import { createRng, seededShuffle } from './rng.js';
+import { sha256sync, hexToBytes, xorNonces } from './crypto.js';
 
 export function initialState() {
   return {
-    phase: 'waiting',       // 'waiting' | 'playing' | 'finished'
-    players: {},            // addr → {name, score}
+    phase: 'waiting',       // 'waiting' | 'seeding' | 'playing' | 'finished'
+    players: {},            // addr -> {name, score}
     playerOrder: [],        // [addr1, addr2]
     board: newBoard(),      // 225-element flat array
     bag: [],                // remaining tiles
-    racks: {},              // addr → [{letter, value, id}]
+    racks: {},              // addr -> [{letter, value, id}]
     turn: null,             // addr of current player
     moveNumber: 0,          // increments each turn
     consecutivePasses: 0,
     lastMove: null,         // {addr, type, placements?, words?, totalScore?, count?}
     gameOverReason: null,
     winner: null,
+    gameNumber: 0,
+    gameHistory: [],        // [{gameNumber, winner, scores, reason, finalBoard}]
+    commits: {},            // addr -> hash hex
+    reveals: {},            // addr -> nonce hex
+    seed: null,             // computed XOR seed
+    rngState: null,         // PRNG internal state (single int)
   };
 }
 
@@ -122,17 +130,61 @@ export function reduce(state, update) {
       }
     }
     if (s.playerOrder.length !== 2) return s;
-    s.phase = 'playing';
-    s.bag = p.bag; // pre-shuffled bag from the initiator
-    // Deal 7 tiles to each player
-    s.racks = {};
-    for (var i = 0; i < s.playerOrder.length; i++) {
-      var addr = s.playerOrder[i];
-      s.racks[addr] = drawTiles(s.bag, RACK_SIZE);
+    s.phase = 'seeding';
+    s.commits = {};
+    s.reveals = {};
+    s.seed = null;
+    s.rngState = null;
+    return s;
+  }
+
+  if (type === 'commit') {
+    if (s.phase !== 'seeding') return s;
+    if (!s.players[p.addr]) return s;
+    // Allow overwriting (handles app restart where nonce was lost)
+    s.commits[p.addr] = p.hash;
+    // If overwriting, clear any existing reveal for that addr
+    if (s.reveals[p.addr]) {
+      delete s.reveals[p.addr];
     }
-    // First player goes first
-    s.turn = s.playerOrder[0];
-    s.moveNumber = 1;
+    return s;
+  }
+
+  if (type === 'reveal') {
+    if (s.phase !== 'seeding') return s;
+    if (!s.players[p.addr]) return s;
+    // Both commits must exist
+    for (var i = 0; i < s.playerOrder.length; i++) {
+      if (!s.commits[s.playerOrder[i]]) return s;
+    }
+    // Addr must not have revealed yet
+    if (s.reveals[p.addr]) return s;
+    // Verify: sha256(nonce bytes) must match commit
+    var computedHash = sha256sync(hexToBytes(p.nonce));
+    if (computedHash !== s.commits[p.addr]) {
+      console.warn('[scramble] rejected reveal: hash mismatch', { computed: computedHash, expected: s.commits[p.addr] });
+      return s;
+    }
+    s.reveals[p.addr] = p.nonce;
+    // When both reveals present, derive seed and deal
+    var allRevealed = true;
+    for (var i = 0; i < s.playerOrder.length; i++) {
+      if (!s.reveals[s.playerOrder[i]]) { allRevealed = false; break; }
+    }
+    if (allRevealed) {
+      s.seed = xorNonces(s.reveals[s.playerOrder[0]], s.reveals[s.playerOrder[1]]);
+      var rng = createRng(s.seed);
+      s.bag = seededShuffle(createBag(), rng);
+      s.racks = {};
+      for (var i = 0; i < s.playerOrder.length; i++) {
+        var addr = s.playerOrder[i];
+        s.racks[addr] = drawTiles(s.bag, RACK_SIZE);
+      }
+      s.rngState = rng.getState();
+      s.turn = s.playerOrder[0];
+      s.moveNumber = 1;
+      s.phase = 'playing';
+    }
     return s;
   }
 
@@ -220,8 +272,6 @@ export function reduce(state, update) {
     if (p.rackIndices.length > s.bag.length) { console.warn('[scramble] rejected exchange: not enough tiles in bag', {requested: p.rackIndices.length, bagSize: s.bag.length}); return s; }
     if (p.rackIndices.length === 0) { console.warn('[scramble] rejected exchange: zero tiles selected'); return s; }
 
-    // The sender provides the new bag state (with returned tiles shuffled back in)
-    // and the drawn tiles. We trust the sender (same casual trust model as poker).
     // Remove tiles from rack (sort descending)
     var indices = p.rackIndices.slice().sort(function (a, b) { return b - a; });
     var returned = [];
@@ -230,13 +280,19 @@ export function reduce(state, update) {
       returned.push(rack.splice(indices[i], 1)[0]);
     }
 
-    // Add drawn tiles to rack
-    for (var i = 0; i < p.drawnTiles.length; i++) {
-      rack.push(p.drawnTiles[i]);
+    // Draw new tiles from front of bag
+    var drawn = drawTiles(s.bag, p.rackIndices.length);
+    for (var i = 0; i < drawn.length; i++) {
+      rack.push(drawn[i]);
     }
 
-    // Replace bag with new bag (drawn tiles removed, returned tiles shuffled in)
-    s.bag = p.newBag;
+    // Put returned tiles back into bag, then reshuffle deterministically
+    for (var i = 0; i < returned.length; i++) {
+      s.bag.push(returned[i]);
+    }
+    var rng = createRng(s.rngState);
+    seededShuffle(s.bag, rng);
+    s.rngState = rng.getState();
 
     s.lastMove = {
       addr: p.addr,
@@ -281,24 +337,66 @@ export function reduce(state, update) {
     return s;
   }
 
+  if (type === 'newgame') {
+    if (s.phase !== 'finished') return s;
+    // Push summary to gameHistory
+    var scores = {};
+    for (var i = 0; i < s.playerOrder.length; i++) {
+      var addr = s.playerOrder[i];
+      scores[addr] = s.players[addr].score;
+    }
+    s.gameHistory.push({
+      gameNumber: s.gameNumber,
+      winner: s.winner,
+      scores: scores,
+      reason: s.gameOverReason,
+      finalBoard: s.board,
+    });
+    // Reset game state (keep players/playerOrder/gameHistory intact)
+    s.board = newBoard();
+    s.bag = [];
+    s.racks = {};
+    s.turn = null;
+    s.moveNumber = 0;
+    s.consecutivePasses = 0;
+    s.lastMove = null;
+    s.gameOverReason = null;
+    s.winner = null;
+    s.commits = {};
+    s.reveals = {};
+    s.seed = null;
+    s.rngState = null;
+    // Reset scores
+    for (var i = 0; i < s.playerOrder.length; i++) {
+      s.players[s.playerOrder[i]].score = 0;
+    }
+    s.phase = 'waiting';
+    s.gameNumber++;
+    return s;
+  }
+
   return s;
 }
 
 // Helper: get summary text for the chat list
 export function getSummary(state, myAddr) {
+  var prefix = state.gameNumber > 0 ? 'Game ' + (state.gameNumber + 1) + ': ' : '';
   if (state.phase === 'waiting') {
-    return 'Waiting for players (' + state.playerOrder.length + '/2)';
+    return prefix + 'Waiting for players (' + state.playerOrder.length + '/2)';
+  }
+  if (state.phase === 'seeding') {
+    return prefix + 'Setting up game...';
   }
   if (state.phase === 'finished') {
-    if (state.winner === 'draw') return 'Game over - Draw!';
-    if (state.winner === myAddr) return 'You won!';
+    if (state.winner === 'draw') return prefix + 'Game over - Draw!';
+    if (state.winner === myAddr) return prefix + 'You won!';
     var winnerName = state.players[state.winner] ? state.players[state.winner].name : 'Unknown';
-    return winnerName + ' won!';
+    return prefix + winnerName + ' won!';
   }
   // Playing
   var scores = state.playerOrder.map(function (addr) {
     return state.players[addr].score;
   });
   var turnText = state.turn === myAddr ? 'Your turn' : (state.players[state.turn].name + "'s turn");
-  return turnText + ' - ' + scores.join(' vs ');
+  return prefix + turnText + ' - ' + scores.join(' vs ');
 }

@@ -499,8 +499,14 @@ export function initUI(appEl, actionCallback) {
 }
 
 export function render(state, myAddr, uiState) {
+  if (uiState.showHistory && state.gameHistory.length > 0) {
+    renderHistory(state, myAddr);
+    return;
+  }
   if (state.phase === 'waiting') {
     renderLobby(state, myAddr);
+  } else if (state.phase === 'seeding') {
+    renderSeeding(state, myAddr);
   } else if (state.phase === 'finished') {
     renderFinished(state, myAddr);
   } else {
@@ -539,6 +545,29 @@ function renderLobby(state, myAddr) {
   app.innerHTML = html;
 }
 
+function renderSeeding(state, myAddr) {
+  var html = '<div class="lobby">';
+  html += '<h1>Scramble</h1>';
+  html += '<div class="seeding-status">';
+  html += '<p class="seeding-heading">Setting up game...</p>';
+  for (var i = 0; i < state.playerOrder.length; i++) {
+    var addr = state.playerOrder[i];
+    var name = esc(state.players[addr].name);
+    var status = 'waiting';
+    if (state.reveals[addr]) status = 'ready';
+    else if (state.commits[addr]) status = 'committed';
+    var statusClass = 'seeding-player seeding-' + status;
+    var statusLabel = status === 'ready' ? 'Ready' : status === 'committed' ? 'Committed' : 'Waiting...';
+    html += '<div class="' + statusClass + '">';
+    html += '<span class="seeding-name">' + name + '</span>';
+    html += '<span class="seeding-label">' + statusLabel + '</span>';
+    html += '</div>';
+  }
+  html += '</div>';
+  html += '</div>';
+  app.innerHTML = html;
+}
+
 function renderFinished(state, myAddr) {
   var html = '<div class="finished">';
   html += '<h1>Game Over</h1>';
@@ -571,6 +600,58 @@ function renderFinished(state, myAddr) {
   // Show board
   html += renderBoard(state.board, [], {});
 
+  // Action buttons
+  html += '<div class="finished-actions">';
+  html += '<button class="btn btn-primary" data-action="newgame">New Game</button>';
+  if (state.gameHistory.length > 0) {
+    html += '<button class="btn" data-action="showhistory">History</button>';
+  }
+  html += '</div>';
+
+  html += '</div>';
+  app.innerHTML = html;
+}
+
+function renderHistory(state, myAddr) {
+  var html = '<div class="history-overlay">';
+  html += '<h2>Game History</h2>';
+
+  for (var g = state.gameHistory.length - 1; g >= 0; g--) {
+    var entry = state.gameHistory[g];
+    html += '<div class="history-entry">';
+    html += '<div class="history-header">Game ' + (entry.gameNumber + 1) + '</div>';
+
+    // Scores
+    html += '<div class="history-scores">';
+    for (var i = 0; i < state.playerOrder.length; i++) {
+      var addr = state.playerOrder[i];
+      var name = state.players[addr] ? esc(state.players[addr].name) : esc(addr);
+      var score = entry.scores[addr] != null ? entry.scores[addr] : '?';
+      var isWinner = entry.winner === addr;
+      html += '<span class="history-score' + (isWinner ? ' winner' : '') + '">';
+      html += name + ': ' + score;
+      if (isWinner) html += ' &#9733;';
+      html += '</span>';
+    }
+    if (entry.winner === 'draw') {
+      html += '<span class="history-score">Draw</span>';
+    }
+    html += '</div>';
+
+    // Reason
+    var reason = entry.reason === 'resign' ? 'Resignation' :
+                 entry.reason === 'consecutivePasses' ? 'Both passed' : 'All tiles played';
+    html += '<div class="history-reason">' + reason + '</div>';
+
+    // Mini board
+    html += '<div class="history-board-thumb">';
+    html += renderBoard(entry.finalBoard, [], {});
+    html += '</div>';
+
+    html += '</div>';
+  }
+
+  html += '<button class="btn btn-primary" data-action="hidehistory">Back</button>';
   html += '</div>';
   app.innerHTML = html;
 }
