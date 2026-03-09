@@ -5,7 +5,7 @@
 The code for this project was made with Claude and is a simple webxdc game for 2 players.  Tile art by Gruel <3.
 
 <p align="center">
-    <img src="public/screenshot.jpg" alt="Scramble Icon">
+    <img src="screenshot.jpg" alt="Scramble Screenshot">
 </p>
 
 ## building
