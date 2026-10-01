@@ -7,6 +7,8 @@ import { loadDictionary, isValidWord } from './dict.js';
 import { initUI, render, reclampZoom } from './ui.js';
 import { generateTextures } from './textures.js';
 import { generateNonce, sha256sync, hexToBytes, bytesToHex } from './crypto.js';
+import { loadEquippedSkin } from './skins.js';
+import { openCrate } from './crate-ui.js';
 
 var myAddr = window.webxdc.selfAddr;
 var myName = window.webxdc.selfName;
@@ -133,6 +135,7 @@ function handleSeeding() {
 document.addEventListener('DOMContentLoaded', function () {
   loadDictionary().then(function () {
     generateTextures();
+    loadEquippedSkin();
     var appEl = document.getElementById('app');
     initUI(appEl, handleAction);
     rerender();
@@ -156,6 +159,10 @@ document.addEventListener('DOMContentLoaded', function () {
       // Auto-seeding after render
       handleSeeding();
     }, 0);
+
+    // #crate opens the crate overlay directly; #crate=<hex seed> replays a specific roll
+    var m = /^#crate(?:=([0-9a-f]{1,8}))?$/i.exec(location.hash);
+    if (m) openCrate(m[1] ? parseInt(m[1], 16) : null);
   });
 });
 
@@ -163,6 +170,11 @@ document.addEventListener('DOMContentLoaded', function () {
 
 function handleAction(action, data) {
   clearError();
+
+  if (action === 'opencrate') {
+    openCrate();
+    return;
+  }
 
   if (action === 'join') {
     window.webxdc.sendUpdate({

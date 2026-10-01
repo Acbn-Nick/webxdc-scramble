@@ -539,6 +539,7 @@ function renderLobby(state, myAddr) {
   } else {
     html += '<p class="lobby-hint">Waiting for opponent...</p>';
   }
+  html += '<button class="btn" data-action="opencrate" style="margin-top:1em">Open Tile Crate</button>';
 
   html += '<a href="https://hurrse.net" target="_blank" style="display:block;margin-top:2em;font-size:0.8em;color:#888;text-decoration:underline;text-align:center;">hurrse.net</a>';
   html += '</div>';
@@ -606,6 +607,7 @@ function renderFinished(state, myAddr) {
   if (state.gameHistory.length > 0) {
     html += '<button class="btn" data-action="showhistory">History</button>';
   }
+  html += '<button class="btn" data-action="opencrate">Open Tile Crate</button>';
   html += '</div>';
 
   html += '</div>';

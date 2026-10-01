@@ -12,6 +12,7 @@
   --star: #e8889a;
   --tile-bg: #fefae0;
   --tile-border: #bfaa6e;
+  --tile-border-light: #fff;
   --tile-text: #333;
   --tile-value: #666;
   --pending-glow: #bc6c25;
@@ -298,10 +299,10 @@ html, body {
 /* Tile on board */
 .cell-tile {
   background: var(--tile-bg);
-  border-top: 1px solid #fff;
-  border-left: 1px solid #fff;
-  border-bottom: 1px solid #bfaa6e;
-  border-right: 1px solid #bfaa6e;
+  border-top: 1px solid var(--tile-border-light);
+  border-left: 1px solid var(--tile-border-light);
+  border-bottom: 1px solid var(--tile-border);
+  border-right: 1px solid var(--tile-border);
   border-radius: 2px;
   cursor: default;
 }
@@ -329,10 +330,10 @@ html, body {
 .cell-pending {
   background: var(--tile-bg);
   box-shadow: 0 0 4px 1px var(--pending-glow);
-  border-top: 1px solid #fff;
-  border-left: 1px solid #fff;
-  border-bottom: 1px solid #bfaa6e;
-  border-right: 1px solid #bfaa6e;
+  border-top: 1px solid var(--tile-border-light);
+  border-left: 1px solid var(--tile-border-light);
+  border-bottom: 1px solid var(--tile-border);
+  border-right: 1px solid var(--tile-border);
   border-radius: 2px;
   cursor: pointer;
   z-index: 1;
@@ -366,10 +367,10 @@ html, body {
   width: clamp(42px, 8vw, 72px);
   height: clamp(50px, 9.2vw, 84px);
   background: var(--tile-bg);
-  border-top: 2px solid #fff;
-  border-left: 2px solid #fff;
-  border-bottom: 2px solid #bfaa6e;
-  border-right: 2px solid #bfaa6e;
+  border-top: 2px solid var(--tile-border-light);
+  border-left: 2px solid var(--tile-border-light);
+  border-bottom: 2px solid var(--tile-border);
+  border-right: 2px solid var(--tile-border);
   border-radius: 4px;
   display: flex;
   flex-direction: column;
@@ -755,4 +756,212 @@ html, body {
   .cell {
     font-size: 2.2vw;
   }
+}
+
+/* -- Tile skins -- */
+
+.skin-tile {
+  width: 56px;
+  height: 64px;
+  background: var(--tile-bg);
+  border-top: 2px solid var(--tile-border-light);
+  border-left: 2px solid var(--tile-border-light);
+  border-bottom: 2px solid var(--tile-border);
+  border-right: 2px solid var(--tile-border);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  flex: none;
+}
+
+.skin-tile .tile-letter {
+  font-weight: bold;
+  color: var(--tile-text);
+  font-size: 1.6em;
+  line-height: 1;
+}
+
+.skin-tile .tile-value {
+  font-size: 0.7em;
+  color: var(--tile-value);
+  position: absolute;
+  bottom: 2px;
+  right: 4px;
+}
+
+.skin-tile-big {
+  width: 84px;
+  height: 96px;
+  font-size: 1.4em;
+}
+
+/* Animated finish for high tier skins; rack only, the board stays static */
+:root[data-tile-fx="shimmer"] .rack-tile,
+.skin-tile.fx-shimmer {
+  background-size: 250% 250%;
+  animation: tile-shimmer 4s ease-in-out infinite alternate;
+}
+
+@keyframes tile-shimmer {
+  from { background-position: 0% 50%; }
+  to { background-position: 100% 50%; }
+}
+
+/* -- Crate roll -- */
+
+.crate-overlay {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  background: rgba(10, 10, 14, 0.82);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 300;
+  padding: 12px;
+}
+
+.crate-panel {
+  width: 100%;
+  max-width: 640px;
+  background: #1c1d24;
+  border: 1px solid #33343f;
+  border-radius: 8px;
+  padding: 16px 12px;
+  color: #e9e9ee;
+  text-align: center;
+}
+
+.crate-title {
+  font-size: 1.1em;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 12px;
+  color: #c9c9d3;
+}
+
+.crate-window {
+  position: relative;
+  height: 112px;
+  overflow: hidden;
+  background: #121318;
+  border-radius: 4px;
+  box-shadow: inset 0 0 24px rgba(0,0,0,0.8);
+}
+
+.crate-window::before,
+.crate-window::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 18%;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.crate-window::before { left: 0; background: linear-gradient(90deg, #121318, transparent); }
+.crate-window::after { right: 0; background: linear-gradient(-90deg, #121318, transparent); }
+
+.crate-strip {
+  display: flex;
+  height: 100%;
+  will-change: transform;
+}
+
+.crate-item {
+  width: 92px;
+  margin-right: 4px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  background: #23242c;
+  background: linear-gradient(180deg, #23242c 60%, color-mix(in srgb, var(--rarity) 30%, #23242c));
+  border-bottom: 4px solid var(--rarity);
+  font-size: 13px;
+}
+
+.crate-item-name {
+  font-size: 0.75em;
+  color: #c9c9d3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 88px;
+}
+
+.crate-item-won {
+  box-shadow: inset 0 0 0 2px var(--rarity), 0 0 18px var(--rarity);
+}
+
+.crate-marker {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: #f5c542;
+  box-shadow: 0 0 8px #f5c542;
+  z-index: 3;
+}
+
+.crate-result {
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+}
+
+.crate-result-show {
+  min-height: 120px;
+  margin-top: 14px;
+  animation: crate-reveal 0.5s ease-out;
+}
+
+.crate-result-show .skin-tile-big {
+  box-shadow: 0 0 28px var(--rarity);
+}
+
+.crate-result-text { text-align: left; }
+
+.crate-result-rarity {
+  color: var(--rarity);
+  font-size: 0.8em;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.crate-result-name {
+  font-size: 1.4em;
+  font-weight: bold;
+}
+
+@keyframes crate-reveal {
+  from { opacity: 0; transform: scale(0.85); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.crate-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+
+.crate-seed {
+  margin-top: 8px;
+  font-size: 0.7em;
+  color: #6c6d78;
+  font-family: monospace;
 }
