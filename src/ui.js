@@ -1,6 +1,7 @@
 // ui.js - All rendering for Scramble: lobby, board, rack, actions, blank prompt, game over
 
 import { BOARD_SIZE, RACK_SIZE, PREMIUM_MAP, TW, DW, TL, DL, ST } from './board.js';
+import { getMatchSummary, MIN_PLAYERS, MAX_PLAYERS } from './state.js';
 
 var app;
 var sendAction;
@@ -116,7 +117,9 @@ export function initUI(appEl, actionCallback) {
     var row = btn.getAttribute('data-row');
     var col = btn.getAttribute('data-col');
     var letter = btn.getAttribute('data-letter');
+    var id = btn.getAttribute('data-id');
     sendAction(action, {
+      id: id,
       index: idx !== null ? parseInt(idx) : null,
       row: row !== null ? parseInt(row) : null,
       col: col !== null ? parseInt(col) : null,
@@ -498,7 +501,12 @@ export function initUI(appEl, actionCallback) {
   });
 }
 
-export function render(state, myAddr, uiState) {
+export function render(appState, myAddr, uiState) {
+  var state = uiState.view === 'match' ? appState.matches[uiState.matchId] : null;
+  if (!state) {
+    renderHome(appState, myAddr, uiState);
+    return;
+  }
   if (uiState.showHistory && state.gameHistory.length > 0) {
     renderHistory(state, myAddr);
     return;
@@ -514,40 +522,135 @@ export function render(state, myAddr, uiState) {
   }
 }
 
+function backButton() {
+  return '<button class="btn nav-back" data-action="home">&#8249; Games</button>';
+}
+
+function playerNames(m, myAddr) {
+  return m.playerOrder.map(function (addr) {
+    return esc(m.players[addr].name) + (addr === myAddr ? ' (you)' : '');
+  }).join(', ');
+}
+
+function renderMatchCard(m, myAddr) {
+  var mine = !!m.players[myAddr];
+  var myTurn = m.phase === 'playing' && m.turn === myAddr;
+  var badge = '';
+  if (myTurn) badge = '<span class="match-badge badge-turn">Your turn</span>';
+  else if (m.phase === 'waiting' && !mine && m.playerOrder.length < m.maxPlayers) badge = '<span class="match-badge badge-open">Join</span>';
+  else if (m.phase === 'waiting' && !mine) badge = '<span class="match-badge">Full</span>';
+  else if (!mine) badge = '<span class="match-badge">Watch</span>';
+
+  var html = '<div class="match-card' + (myTurn ? ' my-turn' : '') + '" data-action="open" data-id="' + esc(m.id) + '">';
+  html += '<div class="match-card-main">';
+  html += '<div class="match-title">' + m.maxPlayers + '-player game</div>';
+  html += '<div class="match-players">' + (playerNames(m, myAddr) || 'No players') + '</div>';
+  html += '<div class="match-status">' + esc(getMatchSummary(m, myAddr)) + '</div>';
+  html += '</div>';
+  html += badge;
+  html += '</div>';
+  return html;
+}
+
+function renderMatchSection(title, matches, myAddr) {
+  if (matches.length === 0) return '';
+  var html = '<div class="home-section">';
+  html += '<h2>' + title + '</h2>';
+  for (var i = 0; i < matches.length; i++) html += renderMatchCard(matches[i], myAddr);
+  html += '</div>';
+  return html;
+}
+
+function renderHome(appState, myAddr, uiState) {
+  var mine = [], open = [], others = [], finished = [];
+  // Newest first
+  for (var i = appState.order.length - 1; i >= 0; i--) {
+    var m = appState.matches[appState.order[i]];
+    if (m.phase === 'finished') finished.push(m);
+    else if (m.players[myAddr]) mine.push(m);
+    else if (m.phase === 'waiting') open.push(m);
+    else others.push(m);
+  }
+  // Matches waiting on my move float to the top
+  mine.sort(function (a, b) {
+    var at = a.phase === 'playing' && a.turn === myAddr ? 1 : 0;
+    var bt = b.phase === 'playing' && b.turn === myAddr ? 1 : 0;
+    return bt - at;
+  });
+
+  var html = '<div class="home">';
+  html += '<h1>Scramble</h1>';
+
+  html += '<div class="home-new">';
+  html += '<div class="size-picker">';
+  for (var n = MIN_PLAYERS; n <= MAX_PLAYERS; n++) {
+    html += '<button class="btn size-btn' + (uiState.newGameSize === n ? ' selected' : '') + '" data-action="pickSize" data-index="' + n + '">' + n + 'P</button>';
+  }
+  html += '</div>';
+  html += '<button class="btn btn-primary" data-action="create">New Game</button>';
+  html += '</div>';
+
+  html += renderMatchSection('Your games', mine, myAddr);
+  html += renderMatchSection('Open games', open, myAddr);
+  html += renderMatchSection('In progress', others, myAddr);
+  html += renderMatchSection('Finished', finished, myAddr);
+
+  if (appState.order.length === 0) {
+    html += '<p class="lobby-hint">No games in this chat yet. Start one!</p>';
+  }
+
+  html += '<a href="https://hurrse.net" target="_blank" class="home-link">hurrse.net</a>';
+  html += '</div>';
+  app.innerHTML = html;
+}
+
 function renderLobby(state, myAddr) {
   var joined = state.playerOrder.indexOf(myAddr) >= 0;
+  var count = state.playerOrder.length;
   var html = '<div class="lobby">';
+  html += backButton();
   html += '<h1>Scramble</h1>';
+  html += '<p class="lobby-hint">' + state.maxPlayers + '-player game &middot; ' + count + '/' + state.maxPlayers + ' joined</p>';
   html += '<div class="lobby-players">';
 
-  if (state.playerOrder.length === 0) {
-    html += '<p class="lobby-hint">No players yet</p>';
-  }
-  for (var i = 0; i < state.playerOrder.length; i++) {
+  for (var i = 0; i < state.maxPlayers; i++) {
     var addr = state.playerOrder[i];
+    if (!addr) {
+      html += '<div class="lobby-player lobby-slot-empty">Open slot</div>';
+      continue;
+    }
     var p = state.players[addr];
     var isMe = addr === myAddr;
-    html += '<div class="lobby-player">' + esc(p.name) + (isMe ? ' (you)' : '') + '</div>';
+    html += '<div class="lobby-player">' + esc(p.name) + (isMe ? ' (you)' : '') +
+            (addr === state.host ? ' <span class="host-tag">host</span>' : '') + '</div>';
   }
 
   html += '</div>';
 
+  html += '<div class="lobby-actions">';
   if (!joined) {
-    html += '<button class="btn btn-primary" data-action="join">Join Game</button>';
-  } else if (state.playerOrder.length === 2) {
-    html += '<button class="btn btn-primary" data-action="start">Start Game</button>';
+    html += '<button class="btn btn-primary" data-action="join"' + (count >= state.maxPlayers ? ' disabled' : '') + '>Join Game</button>';
   } else {
-    html += '<p class="lobby-hint">Waiting for opponent...</p>';
+    if (count >= MIN_PLAYERS) {
+      html += '<button class="btn btn-primary" data-action="start">Start Game</button>';
+    }
+    html += '<button class="btn" data-action="leave">Leave</button>';
+  }
+  html += '</div>';
+  if (joined && count < MIN_PLAYERS) {
+    html += '<p class="lobby-hint">Waiting for opponents...</p>';
+  } else if (joined && count < state.maxPlayers) {
+    html += '<p class="lobby-hint">You can start now or wait for more players</p>';
   }
   html += '<button class="btn" data-action="opencrate" style="margin-top:1em">Open Tile Crate</button>';
 
-  html += '<a href="https://hurrse.net" target="_blank" style="display:block;margin-top:2em;font-size:0.8em;color:#888;text-decoration:underline;text-align:center;">hurrse.net</a>';
   html += '</div>';
   app.innerHTML = html;
 }
 
 function renderSeeding(state, myAddr) {
   var html = '<div class="lobby">';
+  html += backButton();
   html += '<h1>Scramble</h1>';
   html += '<div class="seeding-status">';
   html += '<p class="seeding-heading">Setting up game...</p>';
@@ -571,13 +674,14 @@ function renderSeeding(state, myAddr) {
 
 function renderFinished(state, myAddr) {
   var html = '<div class="finished">';
+  html += backButton();
   html += '<h1>Game Over</h1>';
 
   if (state.gameOverReason === 'resign') {
     var resignee = state.players[state.lastMove.addr];
     html += '<p class="finish-reason">' + esc(resignee ? resignee.name : '?') + ' resigned</p>';
   } else if (state.gameOverReason === 'consecutivePasses') {
-    html += '<p class="finish-reason">Both players passed</p>';
+    html += '<p class="finish-reason">Everyone passed</p>';
   } else {
     html += '<p class="finish-reason">All tiles played</p>';
   }
@@ -603,7 +707,9 @@ function renderFinished(state, myAddr) {
 
   // Action buttons
   html += '<div class="finished-actions">';
-  html += '<button class="btn btn-primary" data-action="newgame">New Game</button>';
+  if (state.players[myAddr]) {
+    html += '<button class="btn btn-primary" data-action="newgame">Rematch</button>';
+  }
   if (state.gameHistory.length > 0) {
     html += '<button class="btn" data-action="showhistory">History</button>';
   }
@@ -642,7 +748,7 @@ function renderHistory(state, myAddr) {
 
     // Reason
     var reason = entry.reason === 'resign' ? 'Resignation' :
-                 entry.reason === 'consecutivePasses' ? 'Both passed' : 'All tiles played';
+                 entry.reason === 'consecutivePasses' ? 'Everyone passed' : 'All tiles played';
     html += '<div class="history-reason">' + reason + '</div>';
 
     // Mini board
@@ -666,11 +772,12 @@ function renderGame(state, myAddr, uiState) {
 
   // Score bar
   topHtml += '<div class="score-bar">';
+  topHtml += '<button class="btn nav-back nav-back-compact" data-action="home" title="Games">&#8249;</button>';
   for (var i = 0; i < state.playerOrder.length; i++) {
     var addr = state.playerOrder[i];
     var p = state.players[addr];
     var active = addr === state.turn;
-    topHtml += '<div class="score-player' + (active ? ' active' : '') + '">';
+    topHtml += '<div class="score-player' + (active ? ' active' : '') + (p.resigned ? ' resigned' : '') + '">';
     topHtml += '<span class="score-name">' + esc(p.name) + '</span>';
     topHtml += '<span class="score-pts">' + p.score + '</span>';
     topHtml += '</div>';

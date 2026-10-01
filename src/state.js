@@ -1,15 +1,38 @@
-// state.js - Immutable reducer for Scramble game state
+// state.js - Immutable reducer for Scramble app state
+//
+// One webxdc instance (one chat message) can hold many matches. Every update
+// payload carries a matchId and is routed to that match's reducer; all
+// clients replay the same update log, so every client ends up with the same
+// set of matches.
 
 import { BOARD_SIZE, RACK_SIZE, CENTER, createBag, validateAndScore } from './board.js';
 import { isValidWord } from './dict.js';
 import { createRng, seededShuffle } from './rng.js';
-import { sha256sync, hexToBytes, xorNonces } from './crypto.js';
+import { sha256sync, hexToBytes } from './crypto.js';
+
+export var MIN_PLAYERS = 2;
+export var MAX_PLAYERS = 4;
+
+// Updates sent before matches existed have no matchId; they all belong to
+// this one implicit 2-player match so old chats still replay.
+export var LEGACY_MATCH_ID = 'legacy';
 
 export function initialState() {
   return {
+    matches: {},            // matchId -> match state
+    order: [],              // matchIds in creation order
+  };
+}
+
+export function initialMatch(id, hostAddr, maxPlayers, seq) {
+  return {
+    id: id,
+    seq: seq,               // creation order, for sorting
+    host: hostAddr,
+    maxPlayers: maxPlayers,
     phase: 'waiting',       // 'waiting' | 'seeding' | 'playing' | 'finished'
-    players: {},            // addr -> {name, score}
-    playerOrder: [],        // [addr1, addr2]
+    players: {},            // addr -> {name, score, resigned?}
+    playerOrder: [],        // [addr1, addr2, ...]
     board: newBoard(),      // 225-element flat array
     bag: [],                // remaining tiles
     racks: {},              // addr -> [{letter, value, id}]
@@ -38,9 +61,26 @@ function clone(obj) {
   return JSON.parse(JSON.stringify(obj));
 }
 
-function nextTurn(state) {
-  var idx = state.playerOrder.indexOf(state.turn);
-  return state.playerOrder[(idx + 1) % state.playerOrder.length];
+function clampPlayers(n) {
+  n = parseInt(n, 10);
+  if (!(n >= MIN_PLAYERS)) return MIN_PLAYERS;
+  if (n > MAX_PLAYERS) return MAX_PLAYERS;
+  return n;
+}
+
+export function activePlayers(m) {
+  return m.playerOrder.filter(function (addr) {
+    return !m.players[addr].resigned;
+  });
+}
+
+function nextTurn(m) {
+  var idx = m.playerOrder.indexOf(m.turn);
+  for (var step = 1; step <= m.playerOrder.length; step++) {
+    var addr = m.playerOrder[(idx + step) % m.playerOrder.length];
+    if (!m.players[addr].resigned) return addr;
+  }
+  return m.turn;
 }
 
 function isFirstMove(board) {
@@ -55,24 +95,47 @@ function drawTiles(bag, count) {
   return drawn;
 }
 
-function endGame(state, reason) {
-  state.phase = 'finished';
-  state.gameOverReason = reason;
+function xorAll(nonces) {
+  var seed = 0;
+  for (var i = 0; i < nonces.length; i++) {
+    seed = (seed ^ parseInt(nonces[i], 16)) >>> 0;
+  }
+  return seed;
+}
 
-  var addrs = state.playerOrder;
+function pickWinner(m, addrs) {
+  var best = null;
+  var tie = false;
+  for (var i = 0; i < addrs.length; i++) {
+    var score = m.players[addrs[i]].score;
+    if (best === null || score > m.players[best].score) {
+      best = addrs[i];
+      tie = false;
+    } else if (score === m.players[best].score) {
+      tie = true;
+    }
+  }
+  return tie ? 'draw' : best;
+}
+
+function endGame(m, reason) {
+  m.phase = 'finished';
+  m.gameOverReason = reason;
+
+  var addrs = activePlayers(m);
   if (addrs.length < 2) {
-    state.winner = addrs[0] || null;
+    m.winner = addrs[0] || null;
     return;
   }
 
   // Subtract remaining rack tiles from each player's score
-  // Player who goes out gets the total of opponent's remaining tiles
+  // Player who goes out gets the total of opponents' remaining tiles
   var rackValues = {};
   var emptyRackAddr = null;
 
   for (var i = 0; i < addrs.length; i++) {
     var addr = addrs[i];
-    var rack = state.racks[addr] || [];
+    var rack = m.racks[addr] || [];
     var total = 0;
     for (var j = 0; j < rack.length; j++) {
       total += rack[j].value;
@@ -83,37 +146,74 @@ function endGame(state, reason) {
 
   for (var i = 0; i < addrs.length; i++) {
     var addr = addrs[i];
-    state.players[addr].score -= rackValues[addr];
+    m.players[addr].score -= rackValues[addr];
   }
 
-  // Player who went out gets opponent's remaining tile values
   if (emptyRackAddr) {
     for (var i = 0; i < addrs.length; i++) {
       if (addrs[i] !== emptyRackAddr) {
-        state.players[emptyRackAddr].score += rackValues[addrs[i]];
+        m.players[emptyRackAddr].score += rackValues[addrs[i]];
       }
     }
   }
 
-  // Determine winner
-  var s0 = state.players[addrs[0]].score;
-  var s1 = state.players[addrs[1]].score;
-  if (s0 > s1) state.winner = addrs[0];
-  else if (s1 > s0) state.winner = addrs[1];
-  else state.winner = 'draw';
+  m.winner = pickWinner(m, addrs);
 }
 
+// Top-level reducer: routes each update to its match.
 export function reduce(state, update) {
   var s = clone(state);
   var p = clone(update.payload || update);
+  var id = p.matchId || LEGACY_MATCH_ID;
+
+  if (p.type === 'create') {
+    if (!p.matchId || s.matches[id]) return s;
+    if (!p.addr) return s;
+    var m = initialMatch(id, p.addr, clampPlayers(p.maxPlayers), s.order.length);
+    m.players[p.addr] = { name: p.name, score: 0 };
+    m.playerOrder.push(p.addr);
+    s.matches[id] = m;
+    s.order.push(id);
+    return s;
+  }
+
+  var match = s.matches[id];
+  if (!match) {
+    if (id !== LEGACY_MATCH_ID || (p.type !== 'join' && p.type !== 'start')) return s;
+    match = initialMatch(id, p.addr, 2, s.order.length);
+    s.order.push(id);
+  }
+
+  var next = reduceMatch(match, p);
+  if (next === null) {
+    delete s.matches[id];
+    s.order = s.order.filter(function (x) { return x !== id; });
+  } else {
+    s.matches[id] = next;
+  }
+  return s;
+}
+
+// Mutates and returns the (already cloned) match, or null to delete it.
+function reduceMatch(s, p) {
   var type = p.type;
 
   if (type === 'join') {
     if (s.phase !== 'waiting') return s;
-    if (s.playerOrder.length >= 2) return s;
+    if (s.playerOrder.length >= s.maxPlayers) return s;
     if (s.players[p.addr]) return s;
     s.players[p.addr] = { name: p.name, score: 0 };
     s.playerOrder.push(p.addr);
+    return s;
+  }
+
+  if (type === 'leave') {
+    if (s.phase !== 'waiting') return s;
+    if (!s.players[p.addr]) return s;
+    delete s.players[p.addr];
+    s.playerOrder = s.playerOrder.filter(function (a) { return a !== p.addr; });
+    if (s.playerOrder.length === 0) return null;
+    if (s.host === p.addr) s.host = s.playerOrder[0];
     return s;
   }
 
@@ -121,15 +221,15 @@ export function reduce(state, update) {
     if (s.phase !== 'waiting') return s;
     // Populate player data from start payload if join updates were missed
     if (p.playerOrder && p.players) {
-      s.playerOrder = p.playerOrder;
       for (var i = 0; i < p.playerOrder.length; i++) {
         var addr = p.playerOrder[i];
-        if (!s.players[addr]) {
+        if (!s.players[addr] && s.playerOrder.length < s.maxPlayers) {
           s.players[addr] = { name: p.players[addr].name, score: 0 };
+          s.playerOrder.push(addr);
         }
       }
     }
-    if (s.playerOrder.length !== 2) return s;
+    if (s.playerOrder.length < MIN_PLAYERS || s.playerOrder.length > s.maxPlayers) return s;
     s.phase = 'seeding';
     s.commits = {};
     s.reveals = {};
@@ -153,7 +253,7 @@ export function reduce(state, update) {
   if (type === 'reveal') {
     if (s.phase !== 'seeding') return s;
     if (!s.players[p.addr]) return s;
-    // Both commits must exist
+    // All commits must exist
     for (var i = 0; i < s.playerOrder.length; i++) {
       if (!s.commits[s.playerOrder[i]]) return s;
     }
@@ -166,25 +266,24 @@ export function reduce(state, update) {
       return s;
     }
     s.reveals[p.addr] = p.nonce;
-    // When both reveals present, derive seed and deal
-    var allRevealed = true;
+    // When all reveals present, derive seed and deal
+    var nonces = [];
     for (var i = 0; i < s.playerOrder.length; i++) {
-      if (!s.reveals[s.playerOrder[i]]) { allRevealed = false; break; }
+      if (!s.reveals[s.playerOrder[i]]) return s;
+      nonces.push(s.reveals[s.playerOrder[i]]);
     }
-    if (allRevealed) {
-      s.seed = xorNonces(s.reveals[s.playerOrder[0]], s.reveals[s.playerOrder[1]]);
-      var rng = createRng(s.seed);
-      s.bag = seededShuffle(createBag(), rng);
-      s.racks = {};
-      for (var i = 0; i < s.playerOrder.length; i++) {
-        var addr = s.playerOrder[i];
-        s.racks[addr] = drawTiles(s.bag, RACK_SIZE);
-      }
-      s.rngState = rng.getState();
-      s.turn = s.playerOrder[0];
-      s.moveNumber = 1;
-      s.phase = 'playing';
+    s.seed = xorAll(nonces);
+    var rng = createRng(s.seed);
+    s.bag = seededShuffle(createBag(), rng);
+    s.racks = {};
+    for (var i = 0; i < s.playerOrder.length; i++) {
+      var addr = s.playerOrder[i];
+      s.racks[addr] = drawTiles(s.bag, RACK_SIZE);
     }
+    s.rngState = rng.getState();
+    s.turn = s.playerOrder[0];
+    s.moveNumber = 1;
+    s.phase = 'playing';
     return s;
   }
 
@@ -311,11 +410,11 @@ export function reduce(state, update) {
     if (p.addr !== s.turn) { console.warn('[scramble] rejected pass: not your turn', {addr: p.addr, turn: s.turn}); return s; }
     if (p.moveNumber !== s.moveNumber) { console.warn('[scramble] rejected pass: moveNumber mismatch', {got: p.moveNumber, expected: s.moveNumber}); return s; }
 
-
     s.consecutivePasses++;
     s.lastMove = { addr: p.addr, type: 'pass' };
 
-    if (s.consecutivePasses >= 2) {
+    // Game ends once every remaining player has passed in a row
+    if (s.consecutivePasses >= activePlayers(s).length) {
       endGame(s, 'consecutivePasses');
       return s;
     }
@@ -327,13 +426,26 @@ export function reduce(state, update) {
 
   if (type === 'resign') {
     if (s.phase !== 'playing') { console.warn('[scramble] rejected resign: wrong phase', {phase: s.phase}); return s; }
-    if (!s.players[p.addr]) { console.warn('[scramble] rejected resign: unknown player', {addr: p.addr}); return s; }
+    if (!s.players[p.addr] || s.players[p.addr].resigned) { console.warn('[scramble] rejected resign: unknown player', {addr: p.addr}); return s; }
 
     s.lastMove = { addr: p.addr, type: 'resign' };
-    // Winner is the other player
-    s.winner = s.playerOrder[0] === p.addr ? s.playerOrder[1] : s.playerOrder[0];
-    s.gameOverReason = 'resign';
-    s.phase = 'finished';
+    s.players[p.addr].resigned = true;
+
+    var remaining = activePlayers(s);
+    if (remaining.length <= 1) {
+      // Last player standing wins
+      s.winner = remaining[0] || null;
+      s.gameOverReason = 'resign';
+      s.phase = 'finished';
+      return s;
+    }
+
+    // With 3-4 players the game continues without the resigned player
+    s.consecutivePasses = 0;
+    if (s.turn === p.addr) {
+      s.turn = nextTurn(s);
+      s.moveNumber++;
+    }
     return s;
   }
 
@@ -366,9 +478,10 @@ export function reduce(state, update) {
     s.reveals = {};
     s.seed = null;
     s.rngState = null;
-    // Reset scores
+    // Reset scores and resignations
     for (var i = 0; i < s.playerOrder.length; i++) {
       s.players[s.playerOrder[i]].score = 0;
+      delete s.players[s.playerOrder[i]].resigned;
     }
     s.phase = 'waiting';
     s.gameNumber++;
@@ -378,25 +491,41 @@ export function reduce(state, update) {
   return s;
 }
 
-// Helper: get summary text for the chat list
-export function getSummary(state, myAddr) {
-  var prefix = state.gameNumber > 0 ? 'Game ' + (state.gameNumber + 1) + ': ' : '';
-  if (state.phase === 'waiting') {
-    return prefix + 'Waiting for players (' + state.playerOrder.length + '/2)';
+// Helper: one-line status of a single match, from myAddr's point of view
+export function getMatchSummary(m, myAddr) {
+  var prefix = m.gameNumber > 0 ? 'Game ' + (m.gameNumber + 1) + ': ' : '';
+  if (m.phase === 'waiting') {
+    return prefix + 'Waiting for players (' + m.playerOrder.length + '/' + m.maxPlayers + ')';
   }
-  if (state.phase === 'seeding') {
+  if (m.phase === 'seeding') {
     return prefix + 'Setting up game...';
   }
-  if (state.phase === 'finished') {
-    if (state.winner === 'draw') return prefix + 'Game over - Draw!';
-    if (state.winner === myAddr) return prefix + 'You won!';
-    var winnerName = state.players[state.winner] ? state.players[state.winner].name : 'Unknown';
+  if (m.phase === 'finished') {
+    if (m.winner === 'draw') return prefix + 'Game over - Draw!';
+    if (m.winner === myAddr) return prefix + 'You won!';
+    var winnerName = m.players[m.winner] ? m.players[m.winner].name : 'Unknown';
     return prefix + winnerName + ' won!';
   }
   // Playing
-  var scores = state.playerOrder.map(function (addr) {
-    return state.players[addr].score;
+  var scores = m.playerOrder.map(function (addr) {
+    return m.players[addr].score;
   });
-  var turnText = state.turn === myAddr ? 'Your turn' : (state.players[state.turn].name + "'s turn");
+  var turnText = m.turn === myAddr ? 'Your turn' : (m.players[m.turn].name + "'s turn");
   return prefix + turnText + ' - ' + scores.join(' vs ');
+}
+
+// Helper: summary text for the chat list. Every chat member sees the same
+// text, so it describes the whole lobby rather than one player's view.
+export function getSummary(state) {
+  var open = 0, playing = 0;
+  for (var i = 0; i < state.order.length; i++) {
+    var m = state.matches[state.order[i]];
+    if (m.phase === 'waiting') open++;
+    else if (m.phase !== 'finished') playing++;
+  }
+  if (open === 0 && playing === 0) return state.order.length ? 'No active games' : 'No games yet';
+  var parts = [];
+  if (open) parts.push(open + ' open');
+  if (playing) parts.push(playing + ' in progress');
+  return 'Games: ' + parts.join(', ');
 }
