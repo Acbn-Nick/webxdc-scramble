@@ -7,7 +7,8 @@
   "scripts": {
     "dev": "vite",
     "build:trie": "node scripts/build-trie.js",
-    "build": "node scripts/build-trie.js && vite build"
+    "build": "node scripts/build-trie.js && vite build",
+    "test": "node --test test/*.test.js"
   },
   "devDependencies": {
     "vite": "^5.4.0",
