@@ -167,3 +167,31 @@ test('updates without matchId replay into the legacy match', function () {
   assert.equal(m.maxPlayers, 2);
   assert.equal(m.phase, 'seeding');
 });
+
+test('matched seats a full table and goes straight to seeding', function () {
+  var s = apply(initialState(), [{
+    type: 'matched', matchId: 'mm1', playerOrder: ['b', 'a', 'c'],
+    players: { a: { name: 'A' }, b: { name: 'B' }, c: { name: 'C' } },
+  }]);
+  var m = s.matches.mm1;
+  assert.equal(m.phase, 'seeding');
+  assert.deepEqual(m.playerOrder, ['b', 'a', 'c']);
+  assert.equal(m.maxPlayers, 3);
+  assert.equal(m.host, 'b');
+  s = seed(s, 'mm1', ['a', 'b', 'c']);
+  assert.equal(s.matches.mm1.phase, 'playing');
+  assert.equal(s.matches.mm1.turn, 'b');
+  assert.equal(s.matches.mm1.racks.c.length, 7);
+});
+
+test('matched ignores bad tables and duplicates', function () {
+  var s = apply(initialState(), [
+    { type: 'matched', matchId: 'x', playerOrder: ['a'], players: { a: { name: 'A' } } },
+    { type: 'matched', matchId: 'y', playerOrder: ['a', 'a'], players: { a: { name: 'A' } } },
+    { type: 'matched', matchId: 'z', playerOrder: ['a', 'b'], players: { a: { name: 'A' } } },
+  ]);
+  assert.equal(s.order.length, 0);
+  s = apply(lobby('m1', ['a'], 2), [{ type: 'matched', matchId: 'm1', playerOrder: ['b', 'c'], players: { b: { name: 'B' }, c: { name: 'C' } } }]);
+  assert.equal(s.matches.m1.phase, 'waiting');
+  assert.deepEqual(s.matches.m1.playerOrder, ['a']);
+});

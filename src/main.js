@@ -1,5 +1,7 @@
 // main.js - Boot, webxdc listener, action dispatch, local UI state
 
+// Must come first: on the web it installs window.webxdc
+import { transport } from './transport.js';
 import './style.css';
 import { initialState, reduce, getSummary, MIN_PLAYERS, MAX_PLAYERS } from './state.js';
 import { validateAndScore } from './board.js';
@@ -29,6 +31,10 @@ var uiState = {
   rackOrder: null,          // null = natural order, or [indices] mapping for visual reorder
   preview: null,            // { valid, words, totalScore, reason } or null
   showHistory: false,
+  matchmaking: transport.matchmaking, // a matchmaking server is reachable (web embed)
+  online: transport.kind === 'native',
+  queue: null,              // {size, waiting} while searching for a match
+  notice: null,             // one-line message from the matchmaking server
 };
 
 // matchId -> gameNumber we already sent a commit/reveal for
@@ -42,6 +48,7 @@ function currentMatch() {
 
 function clearError() {
   uiState.errorMessage = null;
+  uiState.notice = null;
 }
 
 function resetMatchUI() {
@@ -206,11 +213,39 @@ document.addEventListener('DOMContentLoaded', function () {
     // Resolves once the existing log has replayed, so we know whether this chat has my skin
     if (replayed && replayed.then) replayed.then(syncPreferredSkin);
 
+    transport.on(handleTransport);
+    // #join=<matchId> is an invite link to a game on the matchmaking server
+    var invite = /^#join=([0-9a-f]{8,32})$/i.exec(location.hash);
+    if (invite && transport.matchmaking) {
+      transport.watch(invite[1].toLowerCase());
+      openMatch(invite[1].toLowerCase());
+    }
+
     // #crate opens the crate overlay directly; #crate=<hex seed> replays a specific roll
     var m = /^#crate(?:=([0-9a-f]{1,8}))?$/i.exec(location.hash);
     if (m) openCrate(m[1] ? parseInt(m[1], 16) : null, equip);
   });
 });
+
+// Matchmaking server events (web embed only)
+function handleTransport(ev) {
+  if (ev.t === 'status') {
+    uiState.online = ev.online;
+    uiState.notice = ev.error || null;
+    if (!ev.online) uiState.queue = null;
+  } else if (ev.t === 'queue') {
+    uiState.queue = ev.size ? { size: ev.size, waiting: ev.waiting } : null;
+  } else if (ev.t === 'matched') {
+    uiState.queue = null;
+    openMatch(ev.room);
+    return;
+  } else if (ev.t === 'error') {
+    uiState.notice = ev.error;
+  } else {
+    return;
+  }
+  rerender();
+}
 
 // Action Handlers
 
@@ -226,6 +261,30 @@ function handleAction(action, data) {
 
   if (action === 'pickSize') {
     if (data.index >= MIN_PLAYERS && data.index <= MAX_PLAYERS) uiState.newGameSize = data.index;
+    rerender();
+    return;
+  }
+
+  if (action === 'findmatch') {
+    if (!transport.matchmaking) return;
+    uiState.notice = null;
+    uiState.queue = { size: uiState.newGameSize, waiting: 0 };
+    transport.queue(uiState.newGameSize);
+    rerender();
+    return;
+  }
+
+  if (action === 'cancelqueue') {
+    transport.cancel();
+    uiState.queue = null;
+    rerender();
+    return;
+  }
+
+  if (action === 'copyinvite') {
+    var link = inviteLink(data.id);
+    if (navigator.clipboard) navigator.clipboard.writeText(link).catch(function () {});
+    uiState.notice = 'Invite link copied';
     rerender();
     return;
   }
@@ -619,6 +678,10 @@ function handleAction(action, data) {
     send(payload, myName + ' resigned', myName + ' resigned');
     return;
   }
+}
+
+function inviteLink(id) {
+  return location.href.split('#')[0] + '#join=' + id;
 }
 
 function openMatch(id) {
