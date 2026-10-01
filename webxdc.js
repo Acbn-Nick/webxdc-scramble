@@ -6,7 +6,9 @@
   var STORAGE_KEY = 'webxdc-scramble-updates';
   var channel = new BroadcastChannel('webxdc-scramble');
   // Per-tab identity so every tab is a different player
-  var selfAddr = sessionStorage.getItem('webxdc-scramble-addr');
+  // ?player=name picks the player explicitly (e.g. side-by-side iframes)
+  var param = new URLSearchParams(location.search).get('player');
+  var selfAddr = param ? param + '@test.local' : sessionStorage.getItem('webxdc-scramble-addr');
   if (!selfAddr) {
     selfAddr = 'player' + Math.random().toString(36).slice(2, 6) + '@test.local';
     sessionStorage.setItem('webxdc-scramble-addr', selfAddr);
