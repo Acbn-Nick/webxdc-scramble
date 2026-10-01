@@ -1,13 +1,14 @@
 // crate-ui.js - CSGO-style horizontal crate roll overlay
 
 import { roll, randomSeed } from './crate.js';
-import { RARITY_BY_ID, skinStyle, equipSkin } from './skins.js';
+import { RARITY_BY_ID, skinStyle } from './skins.js';
 
 var ITEM_W = 96;  // must match .crate-item width + margin in style.css
 var SPIN_MS = 6500;
 
 var overlay = null;
 var spinning = false;
+var onEquip = null;
 var audioCtx = null;
 
 function esc(str) {
@@ -56,7 +57,9 @@ function tick() {
   } catch (e) {}
 }
 
-export function openCrate(seed) {
+// equipHandler(skinId) is called when the player presses Equip on a result.
+export function openCrate(seed, equipHandler) {
+  onEquip = equipHandler || null;
   if (!overlay) {
     overlay = document.createElement('div');
     overlay.className = 'crate-overlay';
@@ -101,7 +104,7 @@ function onClick(e) {
     overlay.setAttribute('data-seed', '');
     spin(fixed ? parseInt(fixed, 10) : randomSeed());
   } else if (action === 'equip') {
-    equipSkin(btn.getAttribute('data-skin'));
+    if (onEquip) onEquip(btn.getAttribute('data-skin'));
     btn.textContent = 'Equipped';
     btn.disabled = true;
   }
@@ -151,6 +154,7 @@ function land(result) {
   var rarity = RARITY_BY_ID[result.rarity];
   var items = overlay.querySelectorAll('.crate-item');
   items[result.winIndex].classList.add('crate-item-won');
+  if (result.nearMiss) items[result.nearMiss.index].classList.add('crate-item-near');
 
   var resultEl = overlay.querySelector('.crate-result');
   resultEl.className = 'crate-result crate-result-show crate-rarity-' + rarity.id;

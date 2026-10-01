@@ -48,6 +48,10 @@ export var SKINS = [
     bg: 'linear-gradient(120deg,#8a6a1f,#f5d77a 25%,#c9a13b 45%,#fff2c2 60%,#b8882a 80%,#8a6a1f)', light: '#fff2c2', border: '#6b4f12', text: '#3b2a05', value: '#5c430e' },
 ];
 
+// The stock tile look (matches :root in style.css), for players with nothing equipped
+export var DEFAULT_SKIN = { id: '', name: 'Classic', rarity: 'common',
+  bg: '#fefae0', light: '#fff', border: '#bfaa6e', text: '#333', value: '#666' };
+
 export var SKIN_BY_ID = {};
 for (var s = 0; s < SKINS.length; s++) SKIN_BY_ID[SKINS[s].id] = SKINS[s];
 
@@ -67,8 +71,8 @@ export function skinStyle(skin) {
 var VARS = ['--tile-bg', '--tile-border-light', '--tile-border', '--tile-text', '--tile-value'];
 var STORAGE_KEY = 'scramble_equipped_skin';
 
-// Apply a skin to every tile in the game by overriding the root --tile-* vars.
-// Pass null to restore the default tile look.
+// Apply a skin to the local player's own tiles (rack, pending, drag ghost) by
+// overriding the root --tile-* vars. Pass null to restore the default look.
 export function applySkin(skin) {
   var root = document.documentElement;
   if (!skin) {
@@ -85,14 +89,14 @@ export function applySkin(skin) {
   else root.removeAttribute('data-tile-fx');
 }
 
-export function equipSkin(skinId) {
-  try { localStorage.setItem(STORAGE_KEY, skinId || ''); } catch (e) {}
-  applySkin(SKIN_BY_ID[skinId] || null);
+// This device's last equipped skin, so a fresh chat can pick it up. Keyed by
+// addr because the web build can run several players in one browser.
+export function savePreferredSkin(addr, skinId) {
+  try { localStorage.setItem(STORAGE_KEY + '_' + addr, skinId || ''); } catch (e) {}
 }
 
-export function loadEquippedSkin() {
+export function loadPreferredSkin(addr) {
   var id = null;
-  try { id = localStorage.getItem(STORAGE_KEY); } catch (e) {}
-  applySkin(SKIN_BY_ID[id] || null);
-  return id;
+  try { id = localStorage.getItem(STORAGE_KEY + '_' + addr); } catch (e) {}
+  return SKIN_BY_ID[id] ? id : null;
 }

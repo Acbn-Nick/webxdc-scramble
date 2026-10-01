@@ -9,6 +9,7 @@ import { BOARD_SIZE, RACK_SIZE, CENTER, createBag, validateAndScore } from './bo
 import { isValidWord } from './dict.js';
 import { createRng, seededShuffle } from './rng.js';
 import { sha256sync, hexToBytes } from './crypto.js';
+import { SKIN_BY_ID } from './skins.js';
 
 export var MIN_PLAYERS = 2;
 export var MAX_PLAYERS = 4;
@@ -21,6 +22,7 @@ export function initialState() {
   return {
     matches: {},            // matchId -> match state
     order: [],              // matchIds in creation order
+    skins: {},              // addr -> equipped tile skin id, shared across matches
   };
 }
 
@@ -165,6 +167,15 @@ export function reduce(state, update) {
   var s = clone(state);
   var p = clone(update.payload || update);
   var id = p.matchId || LEGACY_MATCH_ID;
+
+  // Equipped skins are per player, not per match, so every match shows them
+  if (p.type === 'skin') {
+    if (!s.skins) s.skins = {};
+    if (!p.addr) return s;
+    if (p.skinId && SKIN_BY_ID[p.skinId]) s.skins[p.addr] = p.skinId;
+    else if (!p.skinId) delete s.skins[p.addr];
+    return s;
+  }
 
   if (p.type === 'create') {
     if (!p.matchId || s.matches[id]) return s;
@@ -319,7 +330,7 @@ function reduceMatch(s, p) {
     // Apply tiles to board
     for (var i = 0; i < placements.length; i++) {
       var pl = placements[i];
-      s.board[pl.row * 15 + pl.col] = { letter: pl.letter, value: pl.value, isBlank: pl.isBlank };
+      s.board[pl.row * 15 + pl.col] = { letter: pl.letter, value: pl.value, isBlank: pl.isBlank, by: p.addr };
     }
 
     // Remove used tiles from rack (sort descending so indices stay valid)
