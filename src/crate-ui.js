@@ -79,7 +79,7 @@ function renderIdle(seed) {
   overlay.innerHTML =
     '<div class="crate-panel">' +
     '<h2 class="crate-title">Tile Crate</h2>' +
-    '<div class="crate-window"><div class="crate-strip"></div><div class="crate-marker"></div></div>' +
+    '<div class="crate-window"><div class="crate-strip"></div><div class="crate-marker"></div><div class="crate-glare"></div></div>' +
     '<div class="crate-result"></div>' +
     '<div class="crate-actions">' +
     '<button class="btn btn-primary" data-crate="spin">Open Crate</button>' +
@@ -160,7 +160,9 @@ function land(result) {
   resultEl.className = 'crate-result crate-result-show crate-rarity-' + rarity.id;
   resultEl.style.setProperty('--rarity', rarity.color);
   resultEl.innerHTML =
+    '<div class="crate-result-tile"><div class="crate-rays"></div>' +
     tileHtml(result.skin, 'S', 1, 'skin-tile-big' + (result.skin.fx ? ' fx-' + result.skin.fx : '')) +
+    '</div>' +
     '<div class="crate-result-text">' +
     '<div class="crate-result-rarity">' + esc(rarity.name) + '</div>' +
     '<div class="crate-result-name">' + esc(result.skin.name) + '</div>' +

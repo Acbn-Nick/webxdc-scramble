@@ -48,6 +48,49 @@ function esc(str) {
   return d.innerHTML;
 }
 
+// Small stroke icons, inlined so the .xdc needs no image assets
+var ICONS = {
+  back: '<path d="M15 5l-7 7 7 7"/>',
+  play: '<path d="M5 12l5 5L20 7"/>',
+  shuffle: '<path d="M4 7h3c5 0 5 10 10 10h3M4 17h3c2 0 3-1.5 4-3M14 9c1-1.3 2-2 3-2h3M18 4l3 3-3 3M18 14l3 3-3 3"/>',
+  recall: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 010 12h-3"/>',
+  swap: '<path d="M7 4L3 8l4 4M3 8h14M17 20l4-4-4-4M21 16H7"/>',
+  pass: '<path d="M5 12h12M13 6l6 6-6 6"/>',
+  flag: '<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  history: '<path d="M3 12a9 9 0 103-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/>',
+  rematch: '<path d="M20 11A8 8 0 006.3 6.3L4 8.5M4 4v4.5h4.5M4 13a8 8 0 0013.7 4.7L20 15.5M20 20v-4.5h-4.5"/>',
+  crown: '<path d="M3 8l4 4 5-7 5 7 4-4-2 11H5z"/>',
+  search: '<circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/>',
+  link: '<path d="M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1"/>'
+};
+
+function icon(name) {
+  return '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">' + ICONS[name] + '</svg>';
+}
+
+// Coin-style avatar: the name's initial on a hue picked from the name
+function avatar(name, extraClass) {
+  var h = 0;
+  name = name || '?';
+  for (var i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) % 360;
+  return '<span class="avatar' + (extraClass ? ' ' + extraClass : '') + '" style="--h:' + h + '">' +
+    esc(name.charAt(0).toUpperCase()) + '</span>';
+}
+
+// The logo is spelled in real tiles, so it wears the player's equipped skin
+var LOGO = [['S', 1], ['C', 3], ['R', 1], ['A', 1], ['M', 3], ['B', 3], ['L', 1], ['E', 1]];
+
+function logoHtml() {
+  var html = '<div class="logo" aria-label="Scramble">';
+  for (var i = 0; i < LOGO.length; i++) {
+    html += '<div class="skin-tile logo-tile" style="--i:' + i + '">' +
+      '<span class="tile-letter">' + LOGO[i][0] + '</span>' +
+      '<span class="tile-value">' + LOGO[i][1] + '</span></div>';
+  }
+  return html + '</div>';
+}
+
 function updateBoardSize() {
   if (!boardViewport) return;
   var rect = boardViewport.getBoundingClientRect();
@@ -535,7 +578,7 @@ export function render(appState, myAddr, uiState) {
 }
 
 function backButton() {
-  return '<button class="btn nav-back" data-action="home">&#8249; Games</button>';
+  return '<button class="btn nav-back" data-action="home">' + icon('back') + 'Games</button>';
 }
 
 function playerNames(m, myAddr) {
@@ -554,6 +597,12 @@ function renderMatchCard(m, myAddr) {
   else if (!mine) badge = '<span class="match-badge">Watch</span>';
 
   var html = '<div class="match-card' + (myTurn ? ' my-turn' : '') + '" data-action="open" data-id="' + esc(m.id) + '">';
+  html += '<div class="avatar-stack">';
+  for (var i = 0; i < m.maxPlayers; i++) {
+    var addr = m.playerOrder[i];
+    html += addr ? avatar(m.players[addr].name) : '<span class="avatar avatar-empty"></span>';
+  }
+  html += '</div>';
   html += '<div class="match-card-main">';
   html += '<div class="match-title">' + m.maxPlayers + '-player game</div>';
   html += '<div class="match-players">' + (playerNames(m, myAddr) || 'No players') + '</div>';
@@ -590,24 +639,40 @@ function renderHome(appState, myAddr, uiState) {
     return bt - at;
   });
 
-  var html = '<div class="home">';
-  html += '<h1>Scramble</h1>';
+  var myName = (window.webxdc && window.webxdc.selfName) || myAddr;
+  var mySkin = SKIN_BY_ID[playerSkins[myAddr]] || DEFAULT_SKIN;
 
-  html += '<div class="home-new">';
-  html += '<div class="size-picker">';
+  var html = '<div class="home">';
+  html += logoHtml();
+
+  html += '<div class="profile">';
+  html += avatar(myName, 'avatar-lg');
+  html += '<div class="profile-main"><div class="profile-name">' + esc(myName) + '</div>';
+  html += '<div class="profile-skin"><span class="skin-swatch" style="' + skinStyle(mySkin) + '"></span>' + esc(mySkin.name) + ' tiles</div></div>';
+  html += '</div>';
+
+  html += '<div class="panel home-new">';
+  html += '<div class="panel-label">' + (uiState.matchmaking ? 'Play online' : 'New game') + '</div>';
+  html += '<div class="size-picker" role="radiogroup">';
   for (var n = MIN_PLAYERS; n <= MAX_PLAYERS; n++) {
-    html += '<button class="btn size-btn' + (uiState.newGameSize === n ? ' selected' : '') + '" data-action="pickSize" data-index="' + n + '">' + n + 'P</button>';
+    html += '<button class="size-btn' + (uiState.newGameSize === n ? ' selected' : '') + '" data-action="pickSize" data-index="' + n + '">' + n + '<small>players</small></button>';
   }
   html += '</div>';
   if (uiState.matchmaking) {
-    html += '<button class="btn btn-primary" data-action="findmatch"' + (uiState.online && !uiState.queue ? '' : ' disabled') + '>Find Match</button>';
-    html += '<button class="btn" data-action="create">Private Game</button>';
+    html += '<button class="btn btn-primary btn-big" data-action="findmatch"' + (uiState.online && !uiState.queue ? '' : ' disabled') + '>' + icon('search') + 'Find Match</button>';
+    html += '<button class="btn" data-action="create">' + icon('plus') + 'Private Game</button>';
   } else {
-    html += '<button class="btn btn-primary" data-action="create">New Game</button>';
+    html += '<button class="btn btn-primary btn-big" data-action="create">' + icon('plus') + 'New Game</button>';
   }
-  html += '</div>';
   html += renderMatchmaking(uiState);
-  html += '<button class="btn home-crate" data-action="opencrate">Open Tile Crate</button>';
+  html += '</div>';
+
+  html += '<button class="crate-card" data-action="opencrate">';
+  html += '<span class="crate-box" aria-hidden="true"><span class="crate-lid"></span><span class="crate-glow"></span></span>';
+  html += '<span class="crate-card-text"><span class="crate-card-title">Tile Crate</span>';
+  html += '<span class="crate-card-sub">Roll for one of 13 tile skins</span></span>';
+  html += '<span class="crate-card-cta">Open</span>';
+  html += '</button>';
 
   html += renderMatchSection('Your games', mine, myAddr);
   html += renderMatchSection('Open games', open, myAddr);
@@ -630,13 +695,13 @@ function renderMatchmaking(uiState) {
   if (uiState.queue) {
     var q = uiState.queue;
     html += '<div class="mm-queue">';
-    html += '<span class="mm-spinner"></span>';
+    html += '<span class="mm-spinner" aria-hidden="true"></span>';
     html += '<span class="mm-text">Finding a ' + q.size + '-player match' +
             (q.waiting ? ' &middot; ' + q.waiting + '/' + q.size + ' in queue' : '') + '</span>';
     html += '<button class="btn" data-action="cancelqueue">Cancel</button>';
     html += '</div>';
   } else if (!uiState.online) {
-    html += '<p class="mm-offline">' + esc(uiState.notice || 'Connecting to the matchmaking server...') + '</p>';
+    html += '<p class="mm-offline"><span class="led led-red"></span>' + esc(uiState.notice || 'Connecting to the matchmaking server...') + '</p>';
   }
   if (uiState.online && uiState.notice) html += '<p class="lobby-hint">' + esc(uiState.notice) + '</p>';
   return html;
@@ -647,19 +712,19 @@ function renderLobby(state, myAddr, uiState) {
   var count = state.playerOrder.length;
   var html = '<div class="lobby">';
   html += backButton();
-  html += '<h1>Scramble</h1>';
+  html += '<h1>Game Lobby</h1>';
   html += '<p class="lobby-hint">' + state.maxPlayers + '-player game &middot; ' + count + '/' + state.maxPlayers + ' joined</p>';
   html += '<div class="lobby-players">';
 
   for (var i = 0; i < state.maxPlayers; i++) {
     var addr = state.playerOrder[i];
     if (!addr) {
-      html += '<div class="lobby-player lobby-slot-empty">Open slot</div>';
+      html += '<div class="lobby-player lobby-slot-empty"><span class="avatar avatar-empty"></span>Open seat</div>';
       continue;
     }
     var p = state.players[addr];
     var isMe = addr === myAddr;
-    html += '<div class="lobby-player">' + esc(p.name) + (isMe ? ' (you)' : '') +
+    html += '<div class="lobby-player">' + avatar(p.name) + '<span class="lobby-name">' + esc(p.name) + (isMe ? ' (you)' : '') + '</span>' +
             (addr === state.host ? ' <span class="host-tag">host</span>' : '') + '</div>';
   }
 
@@ -676,7 +741,7 @@ function renderLobby(state, myAddr, uiState) {
   }
   html += '</div>';
   if (uiState.matchmaking && count < state.maxPlayers) {
-    html += '<button class="btn mm-invite" data-action="copyinvite" data-id="' + esc(state.id) + '">Copy invite link</button>';
+    html += '<button class="btn mm-invite" data-action="copyinvite" data-id="' + esc(state.id) + '">' + icon('link') + 'Copy invite link</button>';
     if (uiState.notice) html += '<p class="lobby-hint">' + esc(uiState.notice) + '</p>';
   }
   if (joined && count < MIN_PLAYERS) {
@@ -692,7 +757,7 @@ function renderLobby(state, myAddr, uiState) {
 function renderSeeding(state, myAddr) {
   var html = '<div class="lobby">';
   html += backButton();
-  html += '<h1>Scramble</h1>';
+  html += '<h1>Shuffling the bag</h1>';
   html += '<div class="seeding-status">';
   html += '<p class="seeding-heading">Setting up game...</p>';
   for (var i = 0; i < state.playerOrder.length; i++) {
@@ -704,7 +769,7 @@ function renderSeeding(state, myAddr) {
     var statusClass = 'seeding-player seeding-' + status;
     var statusLabel = status === 'ready' ? 'Ready' : status === 'committed' ? 'Committed' : 'Waiting...';
     html += '<div class="' + statusClass + '">';
-    html += '<span class="seeding-name">' + name + '</span>';
+    html += '<span class="seeding-name">' + avatar(state.players[addr].name) + name + '</span>';
     html += '<span class="seeding-label">' + statusLabel + '</span>';
     html += '</div>';
   }
@@ -733,6 +798,8 @@ function renderFinished(state, myAddr) {
     var p = state.players[addr];
     var isWinner = state.winner === addr;
     html += '<div class="final-score' + (isWinner ? ' winner' : '') + '">';
+    if (isWinner) html += '<span class="final-crown">' + icon('crown') + '</span>';
+    html += avatar(p.name, 'avatar-lg');
     html += '<span class="final-name">' + esc(p.name) + '</span>';
     html += '<span class="final-pts">' + p.score + '</span>';
     if (isWinner) html += '<span class="final-badge">Winner!</span>';
@@ -749,10 +816,10 @@ function renderFinished(state, myAddr) {
   // Action buttons
   html += '<div class="finished-actions">';
   if (state.players[myAddr]) {
-    html += '<button class="btn btn-primary" data-action="newgame">Rematch</button>';
+    html += '<button class="btn btn-primary" data-action="newgame">' + icon('rematch') + 'Rematch</button>';
   }
   if (state.gameHistory.length > 0) {
-    html += '<button class="btn" data-action="showhistory">History</button>';
+    html += '<button class="btn" data-action="showhistory">' + icon('history') + 'History</button>';
   }
   html += '</div>';
 
@@ -812,17 +879,18 @@ function renderGame(state, myAddr, uiState) {
 
   // Score bar
   topHtml += '<div class="score-bar">';
-  topHtml += '<button class="btn nav-back nav-back-compact" data-action="home" title="Games">&#8249;</button>';
+  topHtml += '<button class="btn nav-back nav-back-compact" data-action="home" title="Games">' + icon('back') + '</button>';
   for (var i = 0; i < state.playerOrder.length; i++) {
     var addr = state.playerOrder[i];
     var p = state.players[addr];
     var active = addr === state.turn;
     topHtml += '<div class="score-player' + (active ? ' active' : '') + (p.resigned ? ' resigned' : '') + '">';
+    topHtml += avatar(p.name);
     topHtml += '<span class="score-name"><span class="skin-swatch"' + skinAttr(addr) + '></span>' + esc(p.name) + '</span>';
     topHtml += '<span class="score-pts">' + p.score + '</span>';
     topHtml += '</div>';
   }
-  topHtml += '<div class="tiles-remaining">' + state.bag.length + ' left</div>';
+  topHtml += '<div class="tiles-remaining"><b>' + state.bag.length + '</b>in bag</div>';
   topHtml += '</div>';
 
   // Last move info
@@ -1047,19 +1115,19 @@ function renderActionBar(state, myAddr, uiState) {
   if (uiState.exchangeMode) {
     html += '<button class="btn btn-primary" data-action="confirmexchange"' +
             (uiState.exchangeIndices.length === 0 ? ' disabled' : '') +
-            '>Exchange ' + uiState.exchangeIndices.length + '</button>';
+            '>' + icon('swap') + 'Exchange ' + uiState.exchangeIndices.length + '</button>';
     html += '<button class="btn" data-action="cancelexchange">Cancel</button>';
   } else if (isMyTurn) {
     var hasPending = uiState.pendingPlacements.length > 0;
-    html += '<button class="btn btn-primary" data-action="play"' + (hasPending ? '' : ' disabled') + '>Play</button>';
-    html += '<button class="btn" data-action="shuffle">Shuffle</button>';
-    html += '<button class="btn" data-action="recall">Recall</button>';
-    html += '<button class="btn" data-action="exchange"' + (hasPending ? ' disabled' : '') + '>Exchange</button>';
-    html += '<button class="btn" data-action="pass">Pass</button>';
-    html += '<button class="btn btn-danger" data-action="resign">Resign</button>';
+    html += '<button class="btn btn-primary btn-play" data-action="play"' + (hasPending ? '' : ' disabled') + '>' + icon('play') + 'Play</button>';
+    html += '<button class="btn" data-action="shuffle">' + icon('shuffle') + 'Shuffle</button>';
+    html += '<button class="btn" data-action="recall">' + icon('recall') + 'Recall</button>';
+    html += '<button class="btn" data-action="exchange"' + (hasPending ? ' disabled' : '') + '>' + icon('swap') + 'Swap</button>';
+    html += '<button class="btn" data-action="pass">' + icon('pass') + 'Pass</button>';
+    html += '<button class="btn btn-danger" data-action="resign">' + icon('flag') + 'Resign</button>';
   } else {
     var turnName = state.players[state.turn] ? esc(state.players[state.turn].name) : '?';
-    html += '<div class="waiting-text">Waiting for ' + turnName + '...</div>';
+    html += '<div class="waiting-text"><span class="led led-amber"></span>Waiting for ' + turnName + '...</div>';
   }
 
   if (uiState.errorMessage) {
