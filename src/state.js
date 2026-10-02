@@ -208,6 +208,18 @@ export function reduce(state, update) {
     return s;
   }
 
+  // The Delta Chat matchmaking bot can't know the players' webxdc addresses,
+  // so it opens an empty table for its group; the players' clients join it
+  // and start it on their own (see main.js)
+  if (p.type === 'table') {
+    if (!p.matchId || s.matches[id]) return s;
+    var tm = initialMatch(id, null, clampPlayers(p.maxPlayers), s.order.length);
+    tm.matchmade = true;
+    s.matches[id] = tm;
+    s.order.push(id);
+    return s;
+  }
+
   var match = s.matches[id];
   if (!match) {
     if (id !== LEGACY_MATCH_ID || (p.type !== 'join' && p.type !== 'start')) return s;

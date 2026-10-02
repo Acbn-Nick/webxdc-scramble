@@ -13,3 +13,6 @@ coverage/
 *.tsbuildinfo
 .claude/
 dist/
+
+# Delta Chat bot account (holds its keys)
+bot-data/

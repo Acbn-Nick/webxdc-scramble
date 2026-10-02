@@ -8,6 +8,9 @@ One small Node service for the **web embed** of Scramble:
 - runs the **matchmaking queue**: players pick 2, 3 or 4 players, press
   *Find Match*, and the server seats a full table in a fresh room.
 
+`bot.js` is the Delta Chat side of matchmaking; see
+[Delta Chat matchmaking bot](#delta-chat-matchmaking-bot).
+
 Inside Delta Chat nothing changes: `window.webxdc` exists, the chat carries
 the updates, and the app never talks to this server (a webxdc has no network
 access there).
@@ -82,13 +85,40 @@ JSON messages over the WebSocket.
 | `{t:'matched', room}` | a table was seated; the room's `matched` update follows |
 | `{t:'error', error}` | a rejected request |
 
-## Not done yet: Delta Chat matchmaking bot
+## Delta Chat matchmaking bot
 
-Matching strangers *inside* Delta Chat needs a bot account (deltachat-rpc)
-that players message, which then creates a group with them and the .xdc,
-and posts the same `matched` update into it. `matchmaker.js` has no socket
-code so the bot can reuse the queue. It needs an email/chatmail account to
-run, so it is left for a follow-up.
+Inside Delta Chat a webxdc can't reach a server, so matchmaking there is a
+bot: players message it, and when a table is full it creates a group with
+them, posts the Scramble .xdc and opens an empty table in it. The players'
+games join that table and start it on their own. It uses the same queue as
+the web relay (`matchmaker.js`).
+
+```bash
+npm run build                 # in the repo root: builds dist/scramble.xdc
+cd server && npm ci
+npm run bot
+```
+
+On first run the bot creates its own chatmail account and saves it in
+`bot-data/` (keep that directory: it holds the bot's address and keys).
+It prints an invite link; share it, and players who open it get a chat with
+the bot.
+
+| env | default | |
+|---|---|---|
+| `SCRAMBLE_BOT_DIR` | `./bot-data` | account data directory |
+| `SCRAMBLE_BOT_CHATMAIL` | `nine.testrun.org` | chatmail server for the bot's account, first run only |
+| `SCRAMBLE_BOT_NAME` | `Scramble Matchmaker` | display name |
+| `SCRAMBLE_XDC` | `../dist/scramble.xdc` | the game it posts into each group |
+
+Commands players send it: `/play 2` (or 3, 4), `/cancel`; anything else
+gets the help text. Run it under systemd like the web server; it needs no
+open ports, only outgoing access to the chatmail server.
+
+Why a `table` and not `matched`: Delta Chat gives each player a different,
+private `selfAddr` inside the game, so the bot can't name the players. It
+opens an empty table for the group's size instead, and every member's game
+joins it and sends `start` once it's full.
 
 ## Tests
 

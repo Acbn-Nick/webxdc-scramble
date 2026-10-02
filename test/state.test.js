@@ -195,3 +195,23 @@ test('matched ignores bad tables and duplicates', function () {
   assert.equal(s.matches.m1.phase, 'waiting');
   assert.deepEqual(s.matches.m1.playerOrder, ['a']);
 });
+
+test('table opens an empty matchmade lobby that players fill and start', function () {
+  var s = apply(initialState(), [
+    { type: 'table', matchId: 't1', maxPlayers: 2 },
+    { type: 'table', matchId: 't1', maxPlayers: 4 },
+  ]);
+  var m = s.matches.t1;
+  assert.equal(m.phase, 'waiting');
+  assert.equal(m.matchmade, true);
+  assert.equal(m.maxPlayers, 2);
+  assert.deepEqual(m.playerOrder, []);
+  s = apply(s, [
+    { type: 'join', matchId: 't1', addr: 'b', name: 'B' },
+    { type: 'join', matchId: 't1', addr: 'a', name: 'A' },
+    { type: 'join', matchId: 't1', addr: 'c', name: 'C' },
+    { type: 'start', matchId: 't1', addr: 'a' },
+  ]);
+  assert.deepEqual(s.matches.t1.playerOrder, ['b', 'a']);
+  assert.equal(s.matches.t1.phase, 'seeding');
+});
