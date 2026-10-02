@@ -756,3 +756,169 @@ html, body {
     font-size: 2.2vw;
   }
 }
+
+/* -- Home Menu -- */
+
+.home {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 14px;
+  width: 100%;
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 16px 12px 48px;
+  overflow-y: auto;
+}
+
+.home h1 {
+  font-size: 1.8em;
+  color: var(--accent-gold);
+  letter-spacing: 0.02em;
+  text-align: center;
+}
+
+.home h2 {
+  font-size: 0.9em;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 6px;
+}
+
+.home-new {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+}
+
+.home-new .btn,
+.lobby-actions .btn,
+.nav-back {
+  font-size: 15px;
+  padding: 8px 14px;
+}
+
+.size-picker {
+  display: flex;
+  gap: 4px;
+}
+
+.size-btn.selected {
+  background: var(--accent-gold);
+  color: #222;
+}
+
+.home-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.match-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--btn-bg);
+  border: 1px solid var(--bevel-dark);
+  border-radius: 8px;
+  color: #fff;
+  cursor: pointer;
+}
+
+.match-card:hover {
+  background: var(--btn-hover);
+}
+
+.match-card.my-turn {
+  border-color: var(--accent-gold);
+}
+
+.match-card-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.match-title {
+  font-weight: bold;
+}
+
+.match-players,
+.match-status {
+  font-size: 0.85em;
+  color: rgba(255,255,255,0.75);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.match-badge {
+  font-size: 0.75em;
+  font-weight: bold;
+  padding: 3px 8px;
+  border-radius: 10px;
+  background: rgba(0,0,0,0.3);
+  white-space: nowrap;
+}
+
+.badge-turn {
+  background: var(--accent-gold);
+  color: #222;
+}
+
+.badge-open {
+  background: var(--btn-primary);
+}
+
+.home-link {
+  display: block;
+  margin-top: 1em;
+  font-size: 0.8em;
+  color: #888;
+  text-decoration: underline;
+  text-align: center;
+}
+
+/* -- Match navigation & lobby slots -- */
+
+.lobby .nav-back,
+.finished .nav-back {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+}
+
+.lobby,
+.finished {
+  position: relative;
+  padding-top: 52px;
+}
+
+.nav-back-compact {
+  padding: 2px 10px;
+  font-size: clamp(12px, 2.4vw, 22px);
+}
+
+.lobby-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.lobby-slot-empty {
+  background: transparent;
+  border-style: dashed;
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.host-tag {
+  font-size: 0.75em;
+  color: var(--accent-gold);
+}
+
+.score-player.resigned {
+  opacity: 0.45;
+  text-decoration: line-through;
+}

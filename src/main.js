@@ -1,7 +1,7 @@
 // main.js - Boot, webxdc listener, action dispatch, local UI state
 
 import './style.css';
-import { initialState, reduce, getSummary } from './state.js';
+import { initialState, reduce, getSummary, MIN_PLAYERS, MAX_PLAYERS } from './state.js';
 import { validateAndScore } from './board.js';
 import { loadDictionary, isValidWord } from './dict.js';
 import { initUI, render, reclampZoom } from './ui.js';
@@ -15,6 +15,9 @@ var state = initialState();
 
 // Local UI state (not shared)
 var uiState = {
+  view: 'home',             // 'home' | 'match'
+  matchId: null,            // match shown when view === 'match'
+  newGameSize: MIN_PLAYERS, // player count picked on the home screen
   selectedRackIndex: null,
   pendingPlacements: [],   // [{rackIndex, row, col, letter, value, isBlank, blankLetter?}]
   exchangeMode: false,
@@ -26,11 +29,28 @@ var uiState = {
   showHistory: false,
 };
 
-var pendingCommitGame = -1;
-var pendingRevealGame = -1;
+// matchId -> gameNumber we already sent a commit/reveal for
+var pendingCommit = {};
+var pendingReveal = {};
+
+function currentMatch() {
+  if (uiState.view !== 'match') return null;
+  return state.matches[uiState.matchId] || null;
+}
 
 function clearError() {
   uiState.errorMessage = null;
+}
+
+function resetMatchUI() {
+  uiState.pendingPlacements = [];
+  uiState.selectedRackIndex = null;
+  uiState.exchangeMode = false;
+  uiState.exchangeIndices = [];
+  uiState.blankPromptData = null;
+  uiState.rackOrder = null;
+  uiState.preview = null;
+  uiState.showHistory = false;
 }
 
 function isFirstMove(board) {
@@ -41,7 +61,8 @@ function isFirstMove(board) {
 }
 
 function updatePreview() {
-  if (uiState.pendingPlacements.length === 0) {
+  var m = currentMatch();
+  if (!m || uiState.pendingPlacements.length === 0) {
     uiState.preview = null;
     return;
   }
@@ -51,78 +72,86 @@ function updatePreview() {
       value: pp.value, isBlank: pp.isBlank || false,
     };
   });
-  uiState.preview = validateAndScore(state.board, placements, isFirstMove(state.board), isValidWord);
+  uiState.preview = validateAndScore(m.board, placements, isFirstMove(m.board), isValidWord);
 }
 
 function rerender() {
+  // A match that doesn't exist (yet) renders the home menu: sendUpdate
+  // delivers asynchronously, so a match we just created appears a moment later
   render(state, myAddr, uiState);
+}
+
+function send(payload, descr, info) {
+  var update = {
+    payload: payload,
+    summary: getSummary(reduce(state, { payload: payload })),
+  };
+  if (info) update.info = info;
+  window.webxdc.sendUpdate(update, descr || '');
+}
+
+function newMatchId() {
+  var bytes = new Uint8Array(6);
+  crypto.getRandomValues(bytes);
+  return bytesToHex(bytes);
 }
 
 // --- Nonce lifecycle helpers ---
 
-function nonceKey() {
-  return 'scramble_nonce_' + state.gameNumber + '_' + myAddr;
+function nonceKey(m) {
+  return 'scramble_nonce_' + m.id + '_' + m.gameNumber + '_' + myAddr;
 }
 
-function storeNonce(nonce) {
-  try { localStorage.setItem(nonceKey(), nonce); } catch (e) {}
+function storeNonce(m, nonce) {
+  try { localStorage.setItem(nonceKey(m), nonce); } catch (e) {}
 }
 
-function loadNonce() {
-  try { return localStorage.getItem(nonceKey()); } catch (e) { return null; }
+function loadNonce(m) {
+  try { return localStorage.getItem(nonceKey(m)); } catch (e) { return null; }
 }
 
-function clearNonce() {
-  try { localStorage.removeItem(nonceKey()); } catch (e) {}
-}
-
-function autoCommit() {
+function autoCommit(m) {
   var nonce = generateNonce();
-  storeNonce(nonce);
+  storeNonce(m, nonce);
   var hash = sha256sync(hexToBytes(nonce));
-  var payload = { type: 'commit', addr: myAddr, hash: hash };
-  window.webxdc.sendUpdate({
-    payload: payload,
-    summary: getSummary(reduce(state, { payload: payload }), myAddr),
-  }, '');
+  send({ type: 'commit', matchId: m.id, addr: myAddr, hash: hash });
 }
 
-function autoReveal() {
-  var nonce = loadNonce();
+function autoReveal(m) {
+  var nonce = loadNonce(m);
   if (!nonce) {
     // Nonce lost (app restart) — re-commit
-    pendingCommitGame = -1;
-    pendingRevealGame = -1;
-    autoCommit();
+    delete pendingReveal[m.id];
+    pendingCommit[m.id] = m.gameNumber;
+    autoCommit(m);
     return;
   }
-  var payload = { type: 'reveal', addr: myAddr, nonce: nonce };
-  var nextState = reduce(state, { payload: payload });
-  window.webxdc.sendUpdate({
-    payload: payload,
-    summary: getSummary(nextState, myAddr),
-  }, '');
-  // Don't clearNonce() here — reveal may be rejected; nonce is keyed by gameNumber so won't collide
+  // Don't clear the nonce here — reveal may be rejected; it is keyed by match and gameNumber so won't collide
+  send({ type: 'reveal', matchId: m.id, addr: myAddr, nonce: nonce });
 }
 
+// Commit-reveal runs for every match I'm in, whether or not it's on screen
 function handleSeeding() {
-  if (state.phase !== 'seeding') return;
-  if (!state.players[myAddr]) return;
+  for (var k = 0; k < state.order.length; k++) {
+    var m = state.matches[state.order[k]];
+    if (m.phase !== 'seeding') continue;
+    if (!m.players[myAddr]) continue;
 
-  if (!state.commits[myAddr]) {
-    if (pendingCommitGame !== state.gameNumber) {
-      pendingCommitGame = state.gameNumber;
-      autoCommit();
+    if (!m.commits[myAddr]) {
+      if (pendingCommit[m.id] !== m.gameNumber) {
+        pendingCommit[m.id] = m.gameNumber;
+        autoCommit(m);
+      }
+      continue;
     }
-  } else {
-    var bothCommitted = true;
-    for (var i = 0; i < state.playerOrder.length; i++) {
-      if (!state.commits[state.playerOrder[i]]) { bothCommitted = false; break; }
+    var allCommitted = true;
+    for (var i = 0; i < m.playerOrder.length; i++) {
+      if (!m.commits[m.playerOrder[i]]) { allCommitted = false; break; }
     }
-    if (bothCommitted && !state.reveals[myAddr]) {
-      if (pendingRevealGame !== state.gameNumber) {
-        pendingRevealGame = state.gameNumber;
-        autoReveal();
+    if (allCommitted && !m.reveals[myAddr]) {
+      if (pendingReveal[m.id] !== m.gameNumber) {
+        pendingReveal[m.id] = m.gameNumber;
+        autoReveal(m);
       }
     }
   }
@@ -141,17 +170,15 @@ document.addEventListener('DOMContentLoaded', function () {
     window.addEventListener('resize', reclampZoom);
 
     window.webxdc.setUpdateListener(function (update) {
+      var payload = update.payload || {};
+      var touched = payload.matchId || 'legacy';
       state = reduce(state, update);
-      // Reset UI state on turn change or phase change
-      uiState.pendingPlacements = [];
-      uiState.selectedRackIndex = null;
-      uiState.exchangeMode = false;
-      uiState.exchangeIndices = [];
-      uiState.blankPromptData = null;
-      uiState.rackOrder = null;
-      uiState.preview = null;
-      uiState.showHistory = false;
-      clearError();
+      // Reset UI state only when the match on screen changed, so moves in
+      // other matches don't wipe tiles I'm placing here
+      if (uiState.view === 'match' && touched === uiState.matchId) {
+        resetMatchUI();
+        clearError();
+      }
       rerender();
       // Auto-seeding after render
       handleSeeding();
@@ -164,36 +191,65 @@ document.addEventListener('DOMContentLoaded', function () {
 function handleAction(action, data) {
   clearError();
 
+  // --- Home menu ---
+
+  if (action === 'pickSize') {
+    if (data.index >= MIN_PLAYERS && data.index <= MAX_PLAYERS) uiState.newGameSize = data.index;
+    rerender();
+    return;
+  }
+
+  if (action === 'create') {
+    var id = newMatchId();
+    send({ type: 'create', matchId: id, addr: myAddr, name: myName, maxPlayers: uiState.newGameSize },
+      myName + ' opened a ' + uiState.newGameSize + '-player game');
+    openMatch(id);
+    return;
+  }
+
+  if (action === 'open') {
+    openMatch(data.id);
+    return;
+  }
+
+  if (action === 'home') {
+    uiState.view = 'home';
+    uiState.matchId = null;
+    resetMatchUI();
+    rerender();
+    return;
+  }
+
+  var m = currentMatch();
+  if (!m) return;
+
+  // --- Match lobby ---
+
   if (action === 'join') {
-    window.webxdc.sendUpdate({
-      payload: { type: 'join', addr: myAddr, name: myName },
-      summary: getSummary(reduce(state, { payload: { type: 'join', addr: myAddr, name: myName } }), myAddr),
-    }, myName + ' joined');
+    send({ type: 'join', matchId: m.id, addr: myAddr, name: myName }, myName + ' joined');
+    return;
+  }
+
+  if (action === 'leave') {
+    send({ type: 'leave', matchId: m.id, addr: myAddr }, myName + ' left');
+    uiState.view = 'home';
+    uiState.matchId = null;
+    rerender();
     return;
   }
 
   if (action === 'start') {
     var players = {};
-    for (var i = 0; i < state.playerOrder.length; i++) {
-      var addr = state.playerOrder[i];
-      players[addr] = { name: state.players[addr].name };
+    for (var i = 0; i < m.playerOrder.length; i++) {
+      var addr = m.playerOrder[i];
+      players[addr] = { name: m.players[addr].name };
     }
-    var payload = { type: 'start', addr: myAddr, playerOrder: state.playerOrder, players: players };
-    var nextState = reduce(state, { payload: payload });
-    window.webxdc.sendUpdate({
-      payload: payload,
-      summary: getSummary(nextState, myAddr),
-    }, 'Game started');
+    send({ type: 'start', matchId: m.id, addr: myAddr, playerOrder: m.playerOrder, players: players }, 'Game started');
     return;
   }
 
   if (action === 'newgame') {
-    var payload = { type: 'newgame', addr: myAddr };
-    var nextState = reduce(state, { payload: payload });
-    window.webxdc.sendUpdate({
-      payload: payload,
-      summary: getSummary(nextState, myAddr),
-    }, 'New game started');
+    send({ type: 'newgame', matchId: m.id, addr: myAddr }, 'New game started');
     return;
   }
 
@@ -210,7 +266,7 @@ function handleAction(action, data) {
   }
 
   if (action === 'selecttile') {
-    if (state.turn !== myAddr) return;
+    if (m.turn !== myAddr) return;
     if (uiState.selectedRackIndex === data.index) {
       uiState.selectedRackIndex = null;
     } else {
@@ -221,11 +277,11 @@ function handleAction(action, data) {
   }
 
   if (action === 'placetile') {
-    if (state.turn !== myAddr) return;
+    if (m.turn !== myAddr) return;
     if (uiState.selectedRackIndex === null) return;
 
     var rackIndex = uiState.selectedRackIndex;
-    var rack = state.racks[myAddr];
+    var rack = m.racks[myAddr];
     var tile = rack[rackIndex];
     if (!tile) return;
 
@@ -261,7 +317,7 @@ function handleAction(action, data) {
   if (action === 'chooseletter') {
     if (!uiState.blankPromptData) return;
     var bd = uiState.blankPromptData;
-    var rack = state.racks[myAddr];
+    var rack = m.racks[myAddr];
     var tile = rack[bd.rackIndex];
 
     uiState.pendingPlacements.push({
@@ -310,7 +366,7 @@ function handleAction(action, data) {
     // Recall pending placements and shuffle the visual rack order
     uiState.pendingPlacements = [];
     uiState.selectedRackIndex = null;
-    var rack = state.racks[myAddr] || [];
+    var rack = m.racks[myAddr] || [];
     var order = [];
     for (var i = 0; i < rack.length; i++) order.push(i);
     // Fisher-Yates shuffle
@@ -328,9 +384,9 @@ function handleAction(action, data) {
 
   if (action === 'dragplace') {
     // Drag a rack tile directly to a board cell
-    if (state.turn !== myAddr) return;
+    if (m.turn !== myAddr) return;
     var rackIndex = data.index;
-    var rack = state.racks[myAddr];
+    var rack = m.racks[myAddr];
     var tile = rack[rackIndex];
     if (!tile) return;
 
@@ -343,7 +399,7 @@ function handleAction(action, data) {
       if (uiState.pendingPlacements[i].row === data.row && uiState.pendingPlacements[i].col === data.col) return;
     }
     // Check if cell has existing board tile
-    if (state.board[data.row * 15 + data.col]) return;
+    if (m.board[data.row * 15 + data.col]) return;
 
     // If blank tile, prompt for letter
     if (tile.letter === '') {
@@ -369,7 +425,7 @@ function handleAction(action, data) {
 
   if (action === 'dragswap') {
     // Reorder rack tiles visually
-    var rack = state.racks[myAddr] || [];
+    var rack = m.racks[myAddr] || [];
     var order = uiState.rackOrder;
     if (!order || order.length !== rack.length) {
       order = [];
@@ -399,7 +455,7 @@ function handleAction(action, data) {
     for (var i = 0; i < uiState.pendingPlacements.length; i++) {
       if (i !== pendingIdx && uiState.pendingPlacements[i].row === data.row && uiState.pendingPlacements[i].col === data.col) return;
     }
-    if (state.board[data.row * 15 + data.col]) return;
+    if (m.board[data.row * 15 + data.col]) return;
     uiState.pendingPlacements[pendingIdx].row = data.row;
     uiState.pendingPlacements[pendingIdx].col = data.col;
     updatePreview();
@@ -419,7 +475,7 @@ function handleAction(action, data) {
   }
 
   if (action === 'play') {
-    if (state.turn !== myAddr) return;
+    if (m.turn !== myAddr) return;
     if (uiState.pendingPlacements.length === 0) return;
 
     // Build tiles array for the update
@@ -430,7 +486,7 @@ function handleAction(action, data) {
     });
 
     // Pre-validate locally to show errors
-    var rack = state.racks[myAddr];
+    var rack = m.racks[myAddr];
     var placements = uiState.pendingPlacements.map(function (pp) {
       return {
         row: pp.row,
@@ -442,11 +498,11 @@ function handleAction(action, data) {
     });
 
     var isFirstMove = true;
-    for (var i = 0; i < state.board.length; i++) {
-      if (state.board[i]) { isFirstMove = false; break; }
+    for (var i = 0; i < m.board.length; i++) {
+      if (m.board[i]) { isFirstMove = false; break; }
     }
 
-    var result = validateAndScore(state.board, placements, isFirstMove, isValidWord);
+    var result = validateAndScore(m.board, placements, isFirstMove, isValidWord);
     if (!result.valid) {
       uiState.errorMessage = result.reason;
       rerender();
@@ -455,22 +511,18 @@ function handleAction(action, data) {
 
     var payload = {
       type: 'place',
+      matchId: m.id,
       addr: myAddr,
-      moveNumber: state.moveNumber,
+      moveNumber: m.moveNumber,
       tiles: tiles,
     };
-    var nextState = reduce(state, { payload: payload });
     var wordList = result.words.map(function(w) { return w.word; }).join(', ');
-    window.webxdc.sendUpdate({
-      payload: payload,
-      summary: getSummary(nextState, myAddr),
-      info: myName + ' played ' + wordList + ' for ' + result.totalScore + ' points',
-    }, myName + ' played ' + wordList);
+    send(payload, myName + ' played ' + wordList, myName + ' played ' + wordList + ' for ' + result.totalScore + ' points');
     return;
   }
 
   if (action === 'exchange') {
-    if (state.turn !== myAddr) return;
+    if (m.turn !== myAddr) return;
     uiState.exchangeMode = true;
     uiState.exchangeIndices = [];
     uiState.pendingPlacements = [];
@@ -491,10 +543,10 @@ function handleAction(action, data) {
   }
 
   if (action === 'confirmexchange') {
-    if (state.turn !== myAddr) return;
+    if (m.turn !== myAddr) return;
     if (uiState.exchangeIndices.length === 0) return;
 
-    if (uiState.exchangeIndices.length > state.bag.length) {
+    if (uiState.exchangeIndices.length > m.bag.length) {
       uiState.errorMessage = 'Not enough tiles in the bag';
       rerender();
       return;
@@ -502,18 +554,14 @@ function handleAction(action, data) {
 
     var payload = {
       type: 'exchange',
+      matchId: m.id,
       addr: myAddr,
-      moveNumber: state.moveNumber,
+      moveNumber: m.moveNumber,
       rackIndices: uiState.exchangeIndices.slice(),
     };
 
-    var nextState = reduce(state, { payload: payload });
     var exchangeCount = uiState.exchangeIndices.length;
-    window.webxdc.sendUpdate({
-      payload: payload,
-      summary: getSummary(nextState, myAddr),
-      info: myName + ' exchanged ' + exchangeCount + ' tile' + (exchangeCount !== 1 ? 's' : ''),
-    }, myName + ' exchanged ' + exchangeCount + ' tiles');
+    send(payload, myName + ' exchanged ' + exchangeCount + ' tiles', myName + ' exchanged ' + exchangeCount + ' tile' + (exchangeCount !== 1 ? 's' : ''));
 
     uiState.exchangeMode = false;
     uiState.exchangeIndices = [];
@@ -528,26 +576,23 @@ function handleAction(action, data) {
   }
 
   if (action === 'pass') {
-    if (state.turn !== myAddr) return;
-    var payload = { type: 'pass', addr: myAddr, moveNumber: state.moveNumber };
-    var nextState = reduce(state, { payload: payload });
-    window.webxdc.sendUpdate({
-      payload: payload,
-      summary: getSummary(nextState, myAddr),
-      info: myName + ' passed',
-    }, myName + ' passed');
+    if (m.turn !== myAddr) return;
+    var payload = { type: 'pass', matchId: m.id, addr: myAddr, moveNumber: m.moveNumber };
+    send(payload, myName + ' passed', myName + ' passed');
     return;
   }
 
   if (action === 'resign') {
-    if (state.turn !== myAddr && state.phase !== 'playing') return;
-    var payload = { type: 'resign', addr: myAddr };
-    var nextState = reduce(state, { payload: payload });
-    window.webxdc.sendUpdate({
-      payload: payload,
-      summary: getSummary(nextState, myAddr),
-      info: myName + ' resigned',
-    }, myName + ' resigned');
+    if (m.turn !== myAddr && m.phase !== 'playing') return;
+    var payload = { type: 'resign', matchId: m.id, addr: myAddr };
+    send(payload, myName + ' resigned', myName + ' resigned');
     return;
   }
+}
+
+function openMatch(id) {
+  uiState.view = 'match';
+  uiState.matchId = id;
+  resetMatchUI();
+  rerender();
 }
