@@ -188,6 +188,26 @@ export function reduce(state, update) {
     return s;
   }
 
+  // A matchmaker (the relay server, later a Delta Chat bot) seats a full table
+  // in one update: the match skips the lobby and goes straight to seeding
+  if (p.type === 'matched') {
+    if (!p.matchId || s.matches[id]) return s;
+    var order = (p.playerOrder || []).filter(function (a, i, all) {
+      return a && p.players && p.players[a] && all.indexOf(a) === i;
+    });
+    if (order.length < MIN_PLAYERS || order.length > MAX_PLAYERS) return s;
+    var mm = initialMatch(id, order[0], order.length, s.order.length);
+    for (var i = 0; i < order.length; i++) {
+      mm.players[order[i]] = { name: p.players[order[i]].name, score: 0 };
+    }
+    mm.playerOrder = order;
+    mm.matchmade = true;
+    mm.phase = 'seeding';
+    s.matches[id] = mm;
+    s.order.push(id);
+    return s;
+  }
+
   var match = s.matches[id];
   if (!match) {
     if (id !== LEGACY_MATCH_ID || (p.type !== 'join' && p.type !== 'start')) return s;

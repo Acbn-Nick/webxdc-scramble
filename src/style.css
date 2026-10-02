@@ -1859,6 +1859,59 @@ body {
   50% { box-shadow: inset 0 0 0 2px var(--rarity); filter: brightness(1.3); }
 }
 
+/* -- Matchmaking (web embed) -- */
+
+/* Queue status sits in a dark inset well under the play buttons */
+.mm-queue {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 8px 8px 12px;
+  border-radius: 14px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--cream);
+  background: linear-gradient(180deg, #0c0704, #22150c);
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.8), 0 1px 0 rgba(255, 240, 210, 0.1);
+}
+
+.mm-text {
+  flex: 1;
+}
+
+.mm-spinner {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  border-radius: 50%;
+  border: 2px solid rgba(243, 210, 126, 0.18);
+  border-top-color: var(--brass-1);
+  box-shadow: 0 0 10px rgba(243, 210, 126, 0.35);
+  animation: mm-spin 0.9s linear infinite;
+}
+
+@keyframes mm-spin {
+  to { transform: rotate(360deg); }
+}
+
+.mm-queue .btn {
+  font-size: 13px;
+  padding: 6px 12px;
+}
+
+.mm-offline {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--cream-dim);
+  font-size: 13px;
+}
+
+.mm-invite {
+  font-size: 14px;
+}
+
 /* -- Responsive and motion -- */
 
 @media (max-width: 380px) {

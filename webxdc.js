@@ -2,6 +2,8 @@
 //@ts-check
 (function () {
   if (window.webxdc) return;
+  // ?relay=ws://... tests the web embed against a local Scramble server instead
+  if (new URLSearchParams(location.search).has('relay')) return;
 
   var STORAGE_KEY = 'webxdc-scramble-updates';
   var channel = new BroadcastChannel('webxdc-scramble');

@@ -30,6 +30,10 @@ export default defineConfig({
     }),
   ],
   base: './',
+  // `npm run dev` + `npm start` in server/: open /?relay to try the web embed
+  server: {
+    proxy: { '/ws': { target: 'ws://localhost:8787', ws: true } },
+  },
   build: {
     outDir: 'dist',
     target: 'es2015',
