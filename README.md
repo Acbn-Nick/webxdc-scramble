@@ -22,6 +22,8 @@ npm run build
 cd server && npm ci && npm start   # http://localhost:8787
 ```
 
+Inside Delta Chat, matchmaking goes through a bot: players message it `/play 2` and it puts them in a new group with the game (`cd server && npm run bot`, see [server/README.md](server/README.md#delta-chat-matchmaking-bot)).
+
 ## developing
 ```bash
 npm run dev   # each browser tab is a separate player (use "Add Peer")

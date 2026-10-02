@@ -3,16 +3,19 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Matchmaking server and update relay for Scramble's web embed",
+  "description": "Matchmaking server, update relay and Delta Chat matchmaking bot for Scramble",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
+    "bot": "node bot.js",
     "test": "node --test test/*.test.js"
   },
   "engines": {
     "node": ">=18"
   },
   "dependencies": {
+    "@deltachat/jsonrpc-client": "^2.62.0",
+    "@deltachat/stdio-rpc-server": "^2.62.0",
     "ws": "^8.18.0"
   }
 }

@@ -157,10 +157,33 @@ function autoReveal(m) {
   send({ type: 'reveal', matchId: m.id, addr: myAddr, nonce: nonce });
 }
 
+// A table the matchmaking bot opened fills and starts itself: everyone in
+// that group chat is a matched player
+var pendingJoin = {};
+var pendingStart = {};
+var logReplayed = false;  // act on tables only once the whole log is in
+function handleTable(m) {
+  if (!m.players[myAddr]) {
+    if (m.playerOrder.length < m.maxPlayers && !pendingJoin[m.id]) {
+      pendingJoin[m.id] = true;
+      send({ type: 'join', matchId: m.id, addr: myAddr, name: myName }, myName + ' joined');
+      if (uiState.view === 'home') openMatch(m.id);
+    }
+    return;
+  }
+  if (m.playerOrder.length === m.maxPlayers && !pendingStart[m.id]) {
+    pendingStart[m.id] = true;
+    var players = {};
+    for (var i = 0; i < m.playerOrder.length; i++) players[m.playerOrder[i]] = { name: m.players[m.playerOrder[i]].name };
+    send({ type: 'start', matchId: m.id, addr: myAddr, playerOrder: m.playerOrder, players: players }, 'Game started');
+  }
+}
+
 // Commit-reveal runs for every match I'm in, whether or not it's on screen
 function handleSeeding() {
   for (var k = 0; k < state.order.length; k++) {
     var m = state.matches[state.order[k]];
+    if (logReplayed && m.phase === 'waiting' && m.matchmade) handleTable(m);
     if (m.phase !== 'seeding') continue;
     if (!m.players[myAddr]) continue;
 
@@ -182,6 +205,19 @@ function handleSeeding() {
       }
     }
   }
+}
+
+function afterReplay() {
+  logReplayed = true;
+  syncPreferredSkin();
+  // A chat the matchmaking bot made holds one table: open it straight away
+  if (transport.kind === 'native' && uiState.view === 'home') {
+    for (var i = state.order.length - 1; i >= 0; i--) {
+      var m = state.matches[state.order[i]];
+      if (m.matchmade && m.phase !== 'finished') { openMatch(m.id); break; }
+    }
+  }
+  handleSeeding();
 }
 
 // Boot
@@ -211,7 +247,8 @@ document.addEventListener('DOMContentLoaded', function () {
       handleSeeding();
     }, 0);
     // Resolves once the existing log has replayed, so we know whether this chat has my skin
-    if (replayed && replayed.then) replayed.then(syncPreferredSkin);
+    if (replayed && replayed.then) replayed.then(afterReplay);
+    else afterReplay();
 
     transport.on(handleTransport);
     // #join=<matchId> is an invite link to a game on the matchmaking server
