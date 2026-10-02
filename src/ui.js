@@ -524,7 +524,7 @@ export function render(appState, myAddr, uiState) {
     return;
   }
   if (state.phase === 'waiting') {
-    renderLobby(state, myAddr);
+    renderLobby(state, myAddr, uiState);
   } else if (state.phase === 'seeding') {
     renderSeeding(state, myAddr);
   } else if (state.phase === 'finished') {
@@ -599,8 +599,14 @@ function renderHome(appState, myAddr, uiState) {
     html += '<button class="btn size-btn' + (uiState.newGameSize === n ? ' selected' : '') + '" data-action="pickSize" data-index="' + n + '">' + n + 'P</button>';
   }
   html += '</div>';
-  html += '<button class="btn btn-primary" data-action="create">New Game</button>';
+  if (uiState.matchmaking) {
+    html += '<button class="btn btn-primary" data-action="findmatch"' + (uiState.online && !uiState.queue ? '' : ' disabled') + '>Find Match</button>';
+    html += '<button class="btn" data-action="create">Private Game</button>';
+  } else {
+    html += '<button class="btn btn-primary" data-action="create">New Game</button>';
+  }
   html += '</div>';
+  html += renderMatchmaking(uiState);
   html += '<button class="btn home-crate" data-action="opencrate">Open Tile Crate</button>';
 
   html += renderMatchSection('Your games', mine, myAddr);
@@ -609,7 +615,7 @@ function renderHome(appState, myAddr, uiState) {
   html += renderMatchSection('Finished', finished, myAddr);
 
   if (appState.order.length === 0) {
-    html += '<p class="lobby-hint">No games in this chat yet. Start one!</p>';
+    html += '<p class="lobby-hint">' + (uiState.matchmaking ? 'No games yet. Find a match!' : 'No games in this chat yet. Start one!') + '</p>';
   }
 
   html += '<a href="https://hurrse.net" target="_blank" class="home-link">hurrse.net</a>';
@@ -617,7 +623,26 @@ function renderHome(appState, myAddr, uiState) {
   app.innerHTML = html;
 }
 
-function renderLobby(state, myAddr) {
+// Queue and connection status for the matchmaking server (web embed only)
+function renderMatchmaking(uiState) {
+  if (!uiState.matchmaking) return '';
+  var html = '';
+  if (uiState.queue) {
+    var q = uiState.queue;
+    html += '<div class="mm-queue">';
+    html += '<span class="mm-spinner"></span>';
+    html += '<span class="mm-text">Finding a ' + q.size + '-player match' +
+            (q.waiting ? ' &middot; ' + q.waiting + '/' + q.size + ' in queue' : '') + '</span>';
+    html += '<button class="btn" data-action="cancelqueue">Cancel</button>';
+    html += '</div>';
+  } else if (!uiState.online) {
+    html += '<p class="mm-offline">' + esc(uiState.notice || 'Connecting to the matchmaking server...') + '</p>';
+  }
+  if (uiState.online && uiState.notice) html += '<p class="lobby-hint">' + esc(uiState.notice) + '</p>';
+  return html;
+}
+
+function renderLobby(state, myAddr, uiState) {
   var joined = state.playerOrder.indexOf(myAddr) >= 0;
   var count = state.playerOrder.length;
   var html = '<div class="lobby">';
@@ -650,6 +675,10 @@ function renderLobby(state, myAddr) {
     html += '<button class="btn" data-action="leave">Leave</button>';
   }
   html += '</div>';
+  if (uiState.matchmaking && count < state.maxPlayers) {
+    html += '<button class="btn mm-invite" data-action="copyinvite" data-id="' + esc(state.id) + '">Copy invite link</button>';
+    if (uiState.notice) html += '<p class="lobby-hint">' + esc(uiState.notice) + '</p>';
+  }
   if (joined && count < MIN_PLAYERS) {
     html += '<p class="lobby-hint">Waiting for opponents...</p>';
   } else if (joined && count < state.maxPlayers) {

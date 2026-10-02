@@ -15,8 +15,16 @@ npm run build
 ```
 and you'll have a new dist/scramble.xdc to try.
 
+## web embed and matchmaking
+Outside Delta Chat the same build runs as a web page, backed by the Scramble server in [server/](server/README.md): it serves the app, relays updates between players and runs the *Find Match* queue.
+```bash
+npm run build
+cd server && npm ci && npm start   # http://localhost:8787
+```
+
 ## developing
 ```bash
 npm run dev   # each browser tab is a separate player (use "Add Peer")
 npm test      # reducer tests
+(cd server && npm test)   # relay and matchmaking tests
 ```
