@@ -37,7 +37,7 @@
     // update doesn't get earlier updates delivered twice
     while (listenerSerial < updates.length) {
       var i = listenerSerial++;
-      listener({ serial: i + 1, payload: updates[i].payload });
+      listener({ serial: i + 1, max_serial: updates.length, payload: updates[i].payload });
     }
   }
 
@@ -62,7 +62,10 @@
     setUpdateListener: function (cb, startSerial) {
       listener = cb;
       listenerSerial = startSerial || 0;
-      setTimeout(processUpdates, 0);
+      // Like the real API, resolve once the existing log has been delivered
+      return new Promise(function (resolve) {
+        setTimeout(function () { processUpdates(); resolve(); }, 0);
+      });
     },
 
     sendUpdate: function (update, descr) {

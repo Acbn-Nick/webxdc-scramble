@@ -2,9 +2,20 @@
 
 import { BOARD_SIZE, RACK_SIZE, PREMIUM_MAP, TW, DW, TL, DL, ST } from './board.js';
 import { getMatchSummary, MIN_PLAYERS, MAX_PLAYERS } from './state.js';
+import { SKIN_BY_ID, DEFAULT_SKIN, skinStyle } from './skins.js';
 
 var app;
 var sendAction;
+
+// addr -> equipped skin id, refreshed on every render
+var playerSkins = {};
+
+// style="..." attribute that draws a tile in its owner's skin. Always set, so another
+// player's default tiles don't inherit my own skin from the root vars.
+function skinAttr(addr) {
+  var skin = SKIN_BY_ID[playerSkins[addr]] || DEFAULT_SKIN;
+  return ' style="' + skinStyle(skin) + '"';
+}
 
 // Persistent board viewport elements (survive innerHTML rebuilds)
 var boardViewport;
@@ -502,6 +513,7 @@ export function initUI(appEl, actionCallback) {
 }
 
 export function render(appState, myAddr, uiState) {
+  playerSkins = appState.skins || {};
   var state = uiState.view === 'match' ? appState.matches[uiState.matchId] : null;
   if (!state) {
     renderHome(appState, myAddr, uiState);
@@ -589,6 +601,7 @@ function renderHome(appState, myAddr, uiState) {
   html += '</div>';
   html += '<button class="btn btn-primary" data-action="create">New Game</button>';
   html += '</div>';
+  html += '<button class="btn home-crate" data-action="opencrate">Open Tile Crate</button>';
 
   html += renderMatchSection('Your games', mine, myAddr);
   html += renderMatchSection('Open games', open, myAddr);
@@ -776,7 +789,7 @@ function renderGame(state, myAddr, uiState) {
     var p = state.players[addr];
     var active = addr === state.turn;
     topHtml += '<div class="score-player' + (active ? ' active' : '') + (p.resigned ? ' resigned' : '') + '">';
-    topHtml += '<span class="score-name">' + esc(p.name) + '</span>';
+    topHtml += '<span class="score-name"><span class="skin-swatch"' + skinAttr(addr) + '></span>' + esc(p.name) + '</span>';
     topHtml += '<span class="score-pts">' + p.score + '</span>';
     topHtml += '</div>';
   }
@@ -890,7 +903,7 @@ function renderBoardInner(board, pendingPlacements, lastMovePos) {
         // Existing tile on board
         cellClass += ' cell-tile';
         if (isLastMove) cellClass += ' cell-lastmove';
-        html += '<div class="' + cellClass + '">';
+        html += '<div class="' + cellClass + '"' + skinAttr(tile.by) + '>';
         html += '<span class="tile-letter">' + esc(tile.letter) + '</span>';
         if (!tile.isBlank) html += '<span class="tile-value">' + tile.value + '</span>';
         html += '</div>';

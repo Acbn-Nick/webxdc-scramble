@@ -144,6 +144,7 @@ test('placing a word scores and passes the turn', function () {
   assert.equal(m.players.a.score, 10);
   assert.equal(m.turn, 'b');
   assert.equal(m.board[7 * 15 + 7].letter, 'A');
+  assert.equal(m.board[7 * 15 + 7].by, 'a');
 });
 
 test('rematch resets scores and resignations', function () {

@@ -7,6 +7,8 @@ import { loadDictionary, isValidWord } from './dict.js';
 import { initUI, render, reclampZoom } from './ui.js';
 import { generateTextures } from './textures.js';
 import { generateNonce, sha256sync, hexToBytes, bytesToHex } from './crypto.js';
+import { SKIN_BY_ID, applySkin, savePreferredSkin, loadPreferredSkin } from './skins.js';
+import { openCrate } from './crate-ui.js';
 
 var myAddr = window.webxdc.selfAddr;
 var myName = window.webxdc.selfName;
@@ -76,6 +78,8 @@ function updatePreview() {
 }
 
 function rerender() {
+  // My own rack and pending tiles follow my equipped skin via the root --tile-* vars
+  applySkin(SKIN_BY_ID[state.skins[myAddr]] || null);
   // A match that doesn't exist (yet) renders the home menu: sendUpdate
   // delivers asynchronously, so a match we just created appears a moment later
   render(state, myAddr, uiState);
@@ -88,6 +92,22 @@ function send(payload, descr, info) {
   };
   if (info) update.info = info;
   window.webxdc.sendUpdate(update, descr || '');
+}
+
+function equip(skinId) {
+  savePreferredSkin(myAddr, skinId);
+  if (state.skins[myAddr] === skinId) return;
+  var skin = SKIN_BY_ID[skinId];
+  send({ type: 'skin', addr: myAddr, skinId: skinId }, myName + ' equipped ' + (skin ? skin.name : 'Classic') + ' tiles');
+}
+
+// Once the update log has replayed, carry this device's skin into a chat that doesn't know it yet
+var skinSynced = false;
+function syncPreferredSkin() {
+  if (skinSynced) return;
+  skinSynced = true;
+  var pref = loadPreferredSkin(myAddr);
+  if (pref && !state.skins[myAddr]) equip(pref);
 }
 
 function newMatchId() {
@@ -169,7 +189,7 @@ document.addEventListener('DOMContentLoaded', function () {
     // Re-clamp zoom bounds on orientation/resize changes
     window.addEventListener('resize', reclampZoom);
 
-    window.webxdc.setUpdateListener(function (update) {
+    var replayed = window.webxdc.setUpdateListener(function (update) {
       var payload = update.payload || {};
       var touched = payload.matchId || 'legacy';
       state = reduce(state, update);
@@ -183,6 +203,12 @@ document.addEventListener('DOMContentLoaded', function () {
       // Auto-seeding after render
       handleSeeding();
     }, 0);
+    // Resolves once the existing log has replayed, so we know whether this chat has my skin
+    if (replayed && replayed.then) replayed.then(syncPreferredSkin);
+
+    // #crate opens the crate overlay directly; #crate=<hex seed> replays a specific roll
+    var m = /^#crate(?:=([0-9a-f]{1,8}))?$/i.exec(location.hash);
+    if (m) openCrate(m[1] ? parseInt(m[1], 16) : null, equip);
   });
 });
 
@@ -190,6 +216,11 @@ document.addEventListener('DOMContentLoaded', function () {
 
 function handleAction(action, data) {
   clearError();
+
+  if (action === 'opencrate') {
+    openCrate(null, equip);
+    return;
+  }
 
   // --- Home menu ---
 
